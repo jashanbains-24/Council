@@ -25,6 +25,8 @@ export type Briefing = {
 
 export type CouncilResponse = {
   agents: AgentResponse[];
+  /** Second round: agents answer each other and narrow toward a decision */
+  discussionFollowUp?: AgentResponse[];
   briefing: Briefing;
 };
 

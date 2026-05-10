@@ -4,7 +4,15 @@ import { useEffect, useState } from "react";
 import { AgentCard } from "./AgentCard";
 import { Briefing } from "./Briefing";
 import { ReasoningPanel } from "./ReasoningPanel";
+import { RoundTwoChamber } from "./RoundTwoChamber";
+import {
+  buildDeliberationSteps,
+  buildRevealSchedule,
+} from "@/lib/deliberation-pacing";
 import type { CouncilResponse, ReasoningResponse } from "@/lib/types";
+
+const PAUSE_AFTER_DISCUSSION_MS = 650;
+const SYNTHESIS_HOLD_MS = 1100;
 
 type ComparisonViewProps = {
   decision: string;
@@ -102,49 +110,71 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
     setIsSynthesizing(false);
     setShowBriefing(false);
 
-    const timers = council.agents.map((_, index) =>
+    const steps = buildDeliberationSteps(council);
+    const { revealAtMs, discussionEndMs } = buildRevealSchedule(
+      steps,
+      decision,
+    );
+
+    const timers = revealAtMs.map((ms, index) =>
       window.setTimeout(() => {
         setVisibleAgentCount(index + 1);
-      }, index * 450),
+      }, ms),
     );
 
-    const synthesisTimer = window.setTimeout(
-      () => {
-        setIsSynthesizing(true);
-      },
-      Math.max(council.agents.length * 450, 450),
-    );
+    const synthesisAt = discussionEndMs + PAUSE_AFTER_DISCUSSION_MS;
+    const synthesisTimer = window.setTimeout(() => {
+      setIsSynthesizing(true);
+    }, synthesisAt);
 
-    const briefingTimer = window.setTimeout(
-      () => {
-        setIsSynthesizing(false);
-        setShowBriefing(true);
-      },
-      Math.max(council.agents.length * 450 + 850, 1300),
-    );
+    const briefingTimer = window.setTimeout(() => {
+      setIsSynthesizing(false);
+      setShowBriefing(true);
+    }, synthesisAt + SYNTHESIS_HOLD_MS);
 
     return () => {
       timers.forEach(window.clearTimeout);
       window.clearTimeout(synthesisTimer);
       window.clearTimeout(briefingTimer);
     };
-  }, [council]);
+  }, [council, decision]);
 
-  const visibleAgents = council?.agents.slice(0, visibleAgentCount) ?? [];
+  const steps = council ? buildDeliberationSteps(council) : [];
+  const visibleSteps = steps.slice(0, visibleAgentCount);
+  const dividerVisible = visibleSteps.some((s) => s.kind === "divider");
+  const openingAgents = visibleSteps.flatMap((s) =>
+    s.kind === "agent" && s.phase === "opening" ? [s.agent] : [],
+  );
+  const rebuttalAgents = visibleSteps.flatMap((s) =>
+    s.kind === "agent" && s.phase === "rebuttal" ? [s.agent] : [],
+  );
   const shouldShowThinking =
     councilLoading ||
-    Boolean(council && visibleAgentCount < council.agents.length);
+    Boolean(council && visibleAgentCount < steps.length);
+
+  const nextStep =
+    !councilLoading && council && visibleAgentCount < steps.length
+      ? steps[visibleAgentCount]
+      : null;
+
+  const deliberationStatusLabel = councilLoading
+    ? "Assembling Council..."
+    : nextStep
+      ? nextStep.kind === "agent"
+        ? `${nextStep.agent.name} composing…`
+        : "Panel regrouping between rounds…"
+      : "Deliberation in progress…";
 
   return (
     <section className="mt-12 pb-12 animate-[fadeIn_500ms_ease-out_forwards]">
-      <div className="mb-6 border border-neutral-800 bg-neutral-950 p-5">
-        <p className="font-mono text-xs uppercase tracking-[0.24em] text-neutral-500">
+      <div className="mb-8 rounded-2xl border border-slate-200/90 bg-white/90 p-6 shadow-council backdrop-blur-sm">
+        <p className="font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
           Assumption point detected
         </p>
-        <p className="mt-3 text-sm leading-6 text-neutral-400">{decision}</p>
+        <p className="mt-3 text-sm leading-relaxed text-slate-700">{decision}</p>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_auto_1fr]">
+      <div className="flex flex-col gap-12">
         <div className="min-w-0">
           <ReasoningPanel
             response={reasoning}
@@ -153,49 +183,81 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
           />
         </div>
 
-        <div className="flex items-center justify-center">
-          <span className="font-display text-5xl text-[#333333]">VS</span>
+        <div className="flex items-center gap-5">
+          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
+          <span className="font-display text-2xl font-medium tracking-tight text-slate-400">
+            VS
+          </span>
+          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
         </div>
 
-        <section className="min-w-0 min-h-[28rem] border border-neutral-800 bg-council-deliberation">
-          <div className="border-b border-neutral-800 p-5">
-            <p className="font-mono text-xs uppercase tracking-[0.24em] text-neutral-500">
+        <section className="min-h-[28rem] overflow-hidden rounded-2xl border border-slate-200/90 bg-council-deliberation shadow-council-md">
+          <div className="border-b border-amber-100/80 bg-gradient-to-r from-white/90 to-amber-50/30 px-6 py-5">
+            <p className="font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
               Council
             </p>
-            <h2 className="mt-3 text-2xl font-semibold text-neutral-100">
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
               Council Deliberation
             </h2>
-            <p className="mt-2 text-sm text-neutral-500">
-              Four perspectives. Explicit disagreement. Structured judgment.
+            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+              Opening positions render as instrumented roster tiles. If a second
+              round exists, it plays out in a separate cross-fire channel—not
+              another paragraph stack.
             </p>
           </div>
 
-          <div className="space-y-4 p-5">
-            {visibleAgents.map((agent, index) => (
-              <AgentCard key={agent.name} agent={agent} index={index} />
-            ))}
+          <div className="p-6">
+            <div className="mb-6">
+              <p className="font-mono text-[10px] font-medium uppercase tracking-[0.28em] text-slate-500">
+                Round I
+              </p>
+              <h3 className="mt-1 font-display text-lg font-medium text-slate-900">
+                Initial positions
+              </h3>
+              <p className="mt-2 text-xs text-slate-600">
+                Each advisor is a rendered node: glyph, lane id, and opening
+                stance.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {openingAgents.map((agent, i) => (
+                <AgentCard
+                  key={`opening-${agent.name}-${i}`}
+                  agent={agent}
+                  index={i}
+                  phase="opening"
+                />
+              ))}
+            </div>
+
+            {dividerVisible ? (
+              <div className="mt-10">
+                <RoundTwoChamber agents={rebuttalAgents} />
+              </div>
+            ) : null}
 
             {shouldShowThinking ? (
-              <div className="border border-dashed border-neutral-800 bg-neutral-950/40 p-4">
+              <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4">
                 <div className="flex items-center gap-3">
-                  <span className="h-2 w-2 animate-pulse bg-neutral-500" />
-                  <p className="font-mono text-xs uppercase tracking-[0.2em] text-neutral-500">
-                    {councilLoading ? "Assembling Council..." : "thinking..."}
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
+                  <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-slate-600">
+                    {deliberationStatusLabel}
                   </p>
                 </div>
               </div>
             ) : null}
 
             {isSynthesizing ? (
-              <div className="border border-neutral-800 bg-neutral-950 p-4">
-                <p className="font-mono text-xs uppercase tracking-[0.2em] text-amber-400">
+              <div className="mt-6 rounded-xl border border-amber-200/90 bg-amber-50/80 px-4 py-4">
+                <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-amber-800">
                   Synthesizing judgment...
                 </p>
               </div>
             ) : null}
 
             {councilError ? (
-              <p className="border border-red-950 bg-red-950/20 p-4 text-sm text-red-300">
+              <p className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                 {councilError}
               </p>
             ) : null}
@@ -204,19 +266,17 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
       </div>
 
       {showBriefing && council ? (
-        <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_auto_1fr]">
-          <div className="hidden xl:block" />
-          <div className="hidden xl:block xl:w-[4.5rem]" />
-          <div className="min-w-0">
-            <Briefing briefing={council.briefing} />
-            <p className="mt-5 text-sm text-neutral-500">
-              The agent received this as structured JSON and updated its next
-              action.
-            </p>
-            <p className="mt-8 text-center font-mono text-xs uppercase tracking-[0.24em] text-neutral-600">
-              No assumption was made. No human was interrupted unnecessarily.
-            </p>
-          </div>
+        <div className="mt-12 min-w-0">
+          <Briefing briefing={council.briefing} />
+          <p className="mt-5 text-sm text-slate-600">
+            The agent received this as structured JSON and updated its next
+            action.
+          </p>
+          <p className="mt-8 text-center font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
+            {council.briefing.should_ask_human
+              ? "Council flagged missing information. Prefer a targeted human check before acting."
+              : "Council closed the loop internally. Proceed using the recommendation and documented risks."}
+          </p>
         </div>
       ) : null}
     </section>

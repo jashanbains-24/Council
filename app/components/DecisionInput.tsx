@@ -27,32 +27,35 @@ export function DecisionInput({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="border border-neutral-800 bg-neutral-950">
-      <div className="border-b border-neutral-800 px-5 py-4">
+    <form
+      onSubmit={handleSubmit}
+      className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-council-md"
+    >
+      <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-4">
         <label
           htmlFor="decision"
-          className="font-mono text-xs uppercase tracking-[0.24em] text-neutral-500"
+          className="font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500"
         >
           What is your agent about to assume?
         </label>
       </div>
-      <div className="p-5">
+      <div className="p-6">
         <textarea
           id="decision"
           value={decision}
           onChange={(event) => setDecision(event.target.value)}
           disabled={isLoading}
           rows={7}
-          className="min-h-40 w-full resize-none border border-neutral-800 bg-[#0b0b0b] p-4 text-base leading-7 text-neutral-200 outline-none transition focus:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-40 w-full resize-none rounded-xl border border-slate-200 bg-slate-50/50 p-4 text-base leading-relaxed text-slate-800 outline-none ring-slate-900/5 transition placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:ring-4 disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <div className="mt-5 flex flex-col gap-4 border-t border-neutral-900 pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-mono text-xs text-neutral-500">
+        <div className="mt-6 flex flex-col gap-4 border-t border-slate-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-mono text-xs text-slate-500">
             Also available as an API for direct agent integration.
           </p>
           <button
             type="submit"
             disabled={!trimmedDecision || isLoading}
-            className="border border-neutral-500 bg-neutral-100 px-5 py-3 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-neutral-950 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2 focus:ring-offset-neutral-950 disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-800 disabled:text-neutral-500"
+            className="rounded-xl bg-slate-900 px-6 py-3 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
           >
             {isLoading ? "Convening..." : "Convene Council"}
           </button>

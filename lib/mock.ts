@@ -32,20 +32,45 @@ export const MOCK_COUNCIL_RESPONSE: CouncilResponse = {
         "The user left the database unspecified, which means either they do not know, forgot to say, or expected the agent to ask. If the agent silently chooses PostgreSQL, the technical risk becomes a trust risk: the user may feel the agent made a foundational product decision without permission. The missing human constraint is ownership of the architecture.",
     },
   ],
+  discussionFollowUp: [
+    {
+      name: "Strategist",
+      role: "Reply — narrowing the path",
+      response:
+        "Skeptic is right that we lack a full data model, but we are not designing a warehouse on day one. For a generic web app, Postgres gives us migrations, constraints, and room to evolve without a category change. I concede we should not pretend the schema is final—start minimal and iterate.",
+    },
+    {
+      name: "Skeptic",
+      role: "Reply — stress-testing consensus",
+      response:
+        "I will buy that if we explicitly scope v1: relational core, no exotic patterns, and a written note that this is a reversible default. My remaining worry is auth and multi-tenant shape; Strategist, your 'minimal schema' only works if we do not bake in row-level assumptions we will regret.",
+    },
+    {
+      name: "Operator",
+      role: "Reply — operational lock-in",
+      response:
+        "Then the decision is managed Postgres, not self-hosted, with a migration tool checked in today and backups on by default. Psychologist: we address trust by stating the assumption in the PR and offering one sentence the user can edit. That is faster than a blocking question for a demo-grade build.",
+    },
+    {
+      name: "Psychologist",
+      role: "Reply — closing the loop",
+      response:
+        "If the agent names the default, names what would change the choice, and leaves an obvious escape hatch in the message, we convert 'silent decision' into transparent delegation. I am satisfied we can proceed without waking the human if that transparency is non-negotiable.",
+    },
+  ],
   briefing: {
     recommendation:
-      "Do not assume PostgreSQL yet; ask the user one targeted question before proceeding.",
+      "Use managed PostgreSQL for v1: minimal relational schema, migrations from day one, and state the DB assumption in the next message with one line the user can edit.",
     reasoning:
-      "The database choice depends on team familiarity, product data shape, deployment constraints, and whether the user wants a managed backend. None of that information is currently known, and choosing wrong could create avoidable migration work.",
+      "Constrained default: managed Postgres, no exotic patterns until requirements clarify, disclosure to the user so the choice is not silent.",
     dissent:
-      "The Strategist favored momentum through a reasonable managed default, while the Skeptic argued that even choosing the database category is premature without knowing access patterns. The Operator shifted the debate toward what the team can realistically operate, and the Psychologist highlighted the trust cost of silently deciding.",
+      "Skeptic resisted any DB pick before a fuller model; Strategist and Operator carried a scoped shipping default; Psychologist required transparency, not a blocking question.",
     biggest_risk:
-      "The agent may lock the project into an architectural path before understanding the product's data model or the team's ability to operate it.",
-    confidence: "low",
+      "Non-relational workloads or heavy multi-tenant isolation later may require a planned migration—keep the schema small and the assumption visible.",
+    confidence: "medium",
     what_would_change_this:
-      "Knowing the team's database experience, expected data model, deployment preference, and whether they want a managed backend would allow a confident recommendation.",
-    should_ask_human: true,
-    suggested_question:
-      "Before I choose a database, what database technologies is your team comfortable operating, and do you already know the rough data model or expected scale?",
+      "Document-first model, extreme scale, or a mandated non-Postgres stack.",
+    should_ask_human: false,
+    suggested_question: "",
   },
 };
