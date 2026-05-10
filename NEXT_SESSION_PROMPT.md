@@ -6,60 +6,61 @@ Copy everything inside the code block into the next Cursor session.
 We are continuing a hackathon demo called "Council" (Next.js 14 app router, TypeScript, Tailwind).
 
 Before changing any code, read these files in order:
-1. DELIBERATION_PLAN.md  (the active plan; this is the source of truth)
+1. DELIBERATION_PLAN.md  (the active plan and current truth; this is the source of truth)
 2. AGENTS.MD
 3. PRD.md
 4. BUILD_PLAN.md
 
-Important context for this session:
-- A teammate may have just pushed updated UI to the same repo. The very first thing you must do is `git status` and `git log -n 5 --oneline` to see what changed since the last session, and read any modified files in app/ before editing anything.
-- The product framing is locked: Council is a thinking-phase tool an AI calls when it hits an assumption. The website is a visualization of the internal deliberation. No human-in-the-loop.
-- The architecture is locked: sequential, 2 cycles, 4 agents (Strategist → Skeptic → Operator → Psychologist), then 1 synthesizer. 9 CLōD calls per Council run plus 1 for the single-model panel = 10 calls per demo.
-- CLōD details, types, phase plan, and open questions are all in DELIBERATION_PLAN.md. Do not deviate without asking.
+What is true today (do not re-litigate, just confirm by reading the files above):
+- Phase 1 (NDJSON streaming refactor) is DONE. /api/council streams events one at a time.
+- Phase 2 (live CLōD integration) is DONE. Verified live four times via curl. All 4 advisors run on distinct CLōD models with silent fallback to gpt-4o-mini, synthesizer is claude-sonnet-4-5, single-pass left panel is fireworks/deepseek-v3p2.
+- Conversational tone prompts are in place. Agents address each other by name in 2-3 sentences and produce real disagreement. The synthesizer returns valid Briefing JSON.
+- The teammate's UI was kept intact. Round 1 = full-width cards, Round 2 = separate "cross-fire channel" panel. Briefing card at the bottom. Visual style is light/cream (intentionally deferred from the dark spec).
+- The Strategist was originally meant to use gpt-5; that and gpt-5-mini are rejected on this account. Use gpt-4.1. Do not retry gpt-5 family.
+- claude-opus-4-7 is also rejected on this account. Use claude-sonnet-4-5 for synth.
+- Use canonical lowercase api ids from GET https://api.clod.io/v1/models, NOT display names from clod.io/models.
+- Do NOT use "thinking-style" models (DeepSeek R1, DeepSeek V3.2, gpt-5 series) for agent personas — they leak chain-of-thought into responses and break the persona illusion. They are fine for the single-pass left panel because rambling is the point there.
 
 Hard constraints:
-- Keep MOCK_API=true as the default until live testing is explicitly requested.
+- Keep MOCK_API=true as the default unless live testing is explicitly requested. The mock backend fake-streams now, so it visually matches live.
 - Never commit .env.local. Never expose CLOD_API_KEY to the client.
 - Do not rebuild the project from scratch.
-- Keep the dark, sharp infrastructure visual style. No purple gradients, chat bubbles, or rounded pill buttons.
+- Do not switch the data shape from `agents` + `discussionFollowUp` to `transcript: CouncilTurn[]`. That migration was deliberately skipped — the existing shape is what the UI consumes.
+- Keep the existing UI components (AgentCard, RoundTwoChamber, Briefing, ReasoningPanel) intact unless explicitly asked to redesign.
 - If `npm run dev` hits an EMFILE watcher error, use:
     npm run build
     npm run start -- -p 3000
     Open http://localhost:3000
 
 First actions for this session (in order, stop after each for user approval):
-1. Run `git status` and `git log -n 5 --oneline`. Tell the user what changed since the last session and whether the working tree is clean.
+1. Run `git status` and `git log -n 5 --oneline`. Confirm the working tree state and that the previous commit ("Wire live CLōD pipeline with per-role models and NDJSON streaming") is in place.
 2. Read DELIBERATION_PLAN.md fully and summarize the current state in 5-8 lines.
-3. If the teammate's UI changes touch any of these files, read them carefully and report any conflicts with the upcoming refactor:
-   - app/page.tsx
-   - app/components/DecisionInput.tsx
-   - app/components/ComparisonView.tsx
-   - app/components/ReasoningPanel.tsx
-   - app/components/AgentCard.tsx
-   - app/components/Briefing.tsx
-4. Ask the user to answer the only open design question from the plan:
-   "When Round 2 starts, should the Round 2 responses appear as NEW cards underneath the Round 1 cards (transcript style), or REPLACE each agent's card with the latest take?"
-   Recommended default: transcript style.
-5. After the user answers, begin Phase 1 from DELIBERATION_PLAN.md, one substep at a time, stopping for approval between each:
-   - Step 1: refactor lib/types.ts to add CouncilTurn and transcript on CouncilResponse.
-   - Step 2: rewrite lib/mock.ts to a believable 8-turn transcript with explicit Round 2 reactions.
-   - Step 3: convert app/api/council/route.ts to NDJSON streaming with `turn`, `synthesizing`, `briefing`, and `error` events.
-   - Step 4: have the mock backend fake-stream turns with ~600ms delays so the UI can be tested without burning CLōD credits.
-   - Step 5: update ComparisonView to consume the NDJSON stream and render turns in order, labeled by cycle.
-   - Step 6: ensure mock demo still works end-to-end. `npm run lint` and `npm run build` must pass.
+3. Confirm `.env.local` has CLOD_API_KEY set and MOCK_API value (true or false). Tell the user which.
+4. Ask the user: "What are we working on this session?" Most likely options:
+   - Browser smoke test of the live stream (open localhost, click Convene Council, report what you see).
+   - Targeted UI fixes after the smoke test (e.g. a more visible "current speaker" indicator, per-card model badge).
+   - Visual polish (dark theme alignment with AGENTS.MD).
+   - Demo polish: a "Tool call from thinking phase" preamble in ComparisonView, a request counter, etc.
+   - Something new the user wants.
+5. Once direction is set, make small, reversible changes one substep at a time. Run `npm run lint` and `npm run build` after each substep. Stop for approval between substeps.
 
-After Phase 1 is approved, ASK the user before starting Phase 2. Phase 2 needs CLOD_API_KEY in .env.local. Phase 2 plan and test order are in DELIBERATION_PLAN.md.
+Test order rules (if anything live is being changed):
+- Always run mock first (`MOCK_API=true`) to confirm the change does not break the demo path.
+- Only flip to `MOCK_API=false` for an explicitly-approved single test.
+- Restore `MOCK_API=true` immediately after the live test.
+- The user has $50 in CLōD credit, so do not over-optimize for cost — but do not run live tests in a loop either.
 
-General rules of engagement for this session:
+General rules of engagement:
 - Ask before adding any new dependency.
-- Ask before flipping MOCK_API=false or making any live CLōD call.
-- Do not edit the teammate's new UI to suit the refactor without first explaining the conflict and getting approval.
-- Keep changes small and reversible. Prefer additive changes to existing types and components.
-- After each substep, run `npm run lint` and report results.
+- Ask before making any change to lib/types.ts CouncilResponse shape (UI depends on it).
+- Ask before flipping MOCK_API=false.
+- Keep changes small and reversible.
+- After every code edit, run `npm run lint` and report results.
+- The user is a beginner with this stack. Give step-by-step terminal instructions. Never assume they will guess what `Ctrl+C` does in context — say it.
 
-If anything is unclear, ask. Do not guess about CLōD model names, endpoints, or response shapes; verify against DELIBERATION_PLAN.md.
+If anything is unclear, ask. Do not guess about CLōD model ids — verify against GET /v1/models. Do not guess about response shapes — read lib/types.ts.
 ```
 
 ## Short summary
 
-Council is a thinking-phase tool an AI calls when it hits an assumption. The website visualizes the internal deliberation: 4 agents speak in sequence over 2 rounds, a synthesizer produces structured JSON, and the parent AI uses it. The mock demo is in place. Next phase is a refactor to a streaming NDJSON transcript, then live CLōD integration. Full plan and decisions live in `DELIBERATION_PLAN.md`.
+Council is a thinking-phase tool an AI calls when it hits an assumption. The website visualizes the internal deliberation: 4 agents on 4 different CLōD models speak in sequence over 2 rounds, a 5th model synthesizes structured JSON, and the parent AI uses it. Live CLōD integration is working end-to-end; per-agent silent fallback handles model failures invisibly. Next session most likely starts with a browser smoke test, then targeted UI fixes. Full plan and all locked decisions live in `DELIBERATION_PLAN.md`.

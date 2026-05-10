@@ -1,30 +1,65 @@
 import { NextResponse } from "next/server";
-import { mockCouncil, realCouncil } from "@/lib/council";
+import {
+  mockCouncilStream,
+  realCouncilStream,
+} from "@/lib/council";
+import type { CouncilStreamEvent } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  let decision: string;
   try {
     const body = await req.json();
-    const decision = body.decision;
-
-    if (!decision || typeof decision !== "string") {
-      return NextResponse.json(
-        { error: "decision is required" },
-        { status: 400 },
-      );
-    }
-
-    const useMock = process.env.MOCK_API !== "false";
-    const result = useMock
-      ? await mockCouncil(decision)
-      : await realCouncil(decision);
-
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error("Council API error:", error);
-
+    decision = body.decision;
+  } catch {
     return NextResponse.json(
-      { error: "Failed to generate Council response" },
-      { status: 500 },
+      { error: "Invalid JSON body" },
+      { status: 400 },
     );
   }
+
+  if (!decision || typeof decision !== "string") {
+    return NextResponse.json(
+      { error: "decision is required" },
+      { status: 400 },
+    );
+  }
+
+  const useMock = process.env.MOCK_API !== "false";
+  const generator = useMock
+    ? mockCouncilStream(decision)
+    : realCouncilStream(decision);
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (event: CouncilStreamEvent) => {
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      };
+
+      try {
+        for await (const event of generator) {
+          write(event);
+        }
+      } catch (err) {
+        console.error("Council stream error:", err);
+        write({
+          type: "error",
+          message: "Council stream failed unexpectedly.",
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

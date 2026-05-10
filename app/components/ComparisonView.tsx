@@ -5,14 +5,12 @@ import { AgentCard } from "./AgentCard";
 import { Briefing } from "./Briefing";
 import { ReasoningPanel } from "./ReasoningPanel";
 import { RoundTwoChamber } from "./RoundTwoChamber";
-import {
-  buildDeliberationSteps,
-  buildRevealSchedule,
-} from "@/lib/deliberation-pacing";
-import type { CouncilResponse, ReasoningResponse } from "@/lib/types";
-
-const PAUSE_AFTER_DISCUSSION_MS = 650;
-const SYNTHESIS_HOLD_MS = 1100;
+import type {
+  AgentResponse,
+  Briefing as BriefingType,
+  CouncilStreamEvent,
+  ReasoningResponse,
+} from "@/lib/types";
 
 type ComparisonViewProps = {
   decision: string;
@@ -21,149 +19,211 @@ type ComparisonViewProps = {
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
-
   return response.json();
+}
+
+/**
+ * Streams NDJSON events from /api/council. Calls onEvent for every parsed
+ * event and resolves once the body is fully consumed. Throws on transport
+ * failure; per-turn model failures are reported as `error` events.
+ */
+async function streamCouncil(
+  decision: string,
+  signal: AbortSignal,
+  onEvent: (event: CouncilStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch("/api/council", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Council stream failed: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line) as CouncilStreamEvent;
+        onEvent(event);
+      } catch (err) {
+        console.warn("[council] dropped malformed NDJSON line:", line, err);
+      }
+    }
+  }
+
+  const tail = buffer.trim();
+  if (tail) {
+    try {
+      onEvent(JSON.parse(tail) as CouncilStreamEvent);
+    } catch {
+      /* ignore trailing junk */
+    }
+  }
+}
+
+type CouncilState = {
+  round1: AgentResponse[];
+  round2: AgentResponse[];
+  isSynthesizing: boolean;
+  briefing: BriefingType | null;
+  errors: string[];
+  status: "idle" | "streaming" | "done" | "failed";
+  currentSpeaker: string | null;
+};
+
+const INITIAL_COUNCIL: CouncilState = {
+  round1: [],
+  round2: [],
+  isSynthesizing: false,
+  briefing: null,
+  errors: [],
+  status: "idle",
+  currentSpeaker: null,
+};
+
+const ROUND_ORDER: Array<{ phase: "opening" | "rebuttal"; name: string }> = [
+  { phase: "opening", name: "Strategist" },
+  { phase: "opening", name: "Skeptic" },
+  { phase: "opening", name: "Operator" },
+  { phase: "opening", name: "Psychologist" },
+  { phase: "rebuttal", name: "Strategist" },
+  { phase: "rebuttal", name: "Skeptic" },
+  { phase: "rebuttal", name: "Operator" },
+  { phase: "rebuttal", name: "Psychologist" },
+];
+
+function nextSpeakerLabel(round1: number, round2: number): string | null {
+  const completed = round1 + round2;
+  if (completed >= ROUND_ORDER.length) return null;
+  const next = ROUND_ORDER[completed];
+  const phaseLabel = next.phase === "opening" ? "Round 1" : "Round 2";
+  return `${next.name} composing… (${phaseLabel})`;
 }
 
 export function ComparisonView({ decision }: ComparisonViewProps) {
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
-  const [council, setCouncil] = useState<CouncilResponse | null>(null);
   const [reasoningLoading, setReasoningLoading] = useState(true);
-  const [councilLoading, setCouncilLoading] = useState(true);
-  const [visibleAgentCount, setVisibleAgentCount] = useState(0);
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const [showBriefing, setShowBriefing] = useState(false);
   const [reasoningError, setReasoningError] = useState<string | null>(null);
-  const [councilError, setCouncilError] = useState<string | null>(null);
+
+  const [council, setCouncil] = useState<CouncilState>(INITIAL_COUNCIL);
 
   useEffect(() => {
-    let isActive = true;
+    let cancelled = false;
+    const ac = new AbortController();
 
     setReasoning(null);
-    setCouncil(null);
     setReasoningLoading(true);
-    setCouncilLoading(true);
-    setVisibleAgentCount(0);
-    setIsSynthesizing(false);
-    setShowBriefing(false);
     setReasoningError(null);
-    setCouncilError(null);
+    setCouncil({
+      ...INITIAL_COUNCIL,
+      status: "streaming",
+      currentSpeaker: nextSpeakerLabel(0, 0),
+    });
 
     postJson<ReasoningResponse>("/api/reasoning", { decision })
       .then((result) => {
-        if (isActive) {
-          setReasoning(result);
-        }
+        if (!cancelled) setReasoning(result);
       })
       .catch(() => {
-        if (isActive) {
+        if (!cancelled) {
           setReasoningError(
             "The single model response failed. The agent should not proceed blindly.",
           );
         }
       })
       .finally(() => {
-        if (isActive) {
-          setReasoningLoading(false);
-        }
+        if (!cancelled) setReasoningLoading(false);
       });
 
-    postJson<CouncilResponse>("/api/council", { decision })
-      .then((result) => {
-        if (isActive) {
-          setCouncil(result);
+    streamCouncil(decision, ac.signal, (event) => {
+      if (cancelled) return;
+      setCouncil((prev) => {
+        if (event.type === "turn") {
+          const round1 =
+            event.phase === "opening"
+              ? [...prev.round1, event.agent]
+              : prev.round1;
+          const round2 =
+            event.phase === "rebuttal"
+              ? [...prev.round2, event.agent]
+              : prev.round2;
+          return {
+            ...prev,
+            round1,
+            round2,
+            currentSpeaker: nextSpeakerLabel(round1.length, round2.length),
+          };
         }
-      })
-      .catch(() => {
-        if (isActive) {
-          setCouncilError(
+        if (event.type === "synthesizing") {
+          return { ...prev, isSynthesizing: true, currentSpeaker: null };
+        }
+        if (event.type === "briefing") {
+          return {
+            ...prev,
+            isSynthesizing: false,
+            briefing: event.briefing,
+            status: "done",
+            currentSpeaker: null,
+          };
+        }
+        if (event.type === "error") {
+          return { ...prev, errors: [...prev.errors, event.message] };
+        }
+        return prev;
+      });
+    })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setCouncil((prev) => ({
+          ...prev,
+          status: "failed",
+          currentSpeaker: null,
+          errors: [
+            ...prev.errors,
             "Council could not complete this run. The agent should not proceed blindly.",
-          );
-        }
-      })
-      .finally(() => {
-        if (isActive) {
-          setCouncilLoading(false);
-        }
+          ],
+        }));
       });
 
     return () => {
-      isActive = false;
+      cancelled = true;
+      ac.abort();
     };
   }, [decision]);
 
-  useEffect(() => {
-    if (!council) {
-      return;
-    }
+  const totalDelivered = council.round1.length + council.round2.length;
+  const isStillStreaming =
+    council.status === "streaming" && totalDelivered < ROUND_ORDER.length;
+  const dividerVisible = council.round1.length === 4 || council.round2.length > 0;
 
-    setVisibleAgentCount(0);
-    setIsSynthesizing(false);
-    setShowBriefing(false);
-
-    const steps = buildDeliberationSteps(council);
-    const { revealAtMs, discussionEndMs } = buildRevealSchedule(
-      steps,
-      decision,
-    );
-
-    const timers = revealAtMs.map((ms, index) =>
-      window.setTimeout(() => {
-        setVisibleAgentCount(index + 1);
-      }, ms),
-    );
-
-    const synthesisAt = discussionEndMs + PAUSE_AFTER_DISCUSSION_MS;
-    const synthesisTimer = window.setTimeout(() => {
-      setIsSynthesizing(true);
-    }, synthesisAt);
-
-    const briefingTimer = window.setTimeout(() => {
-      setIsSynthesizing(false);
-      setShowBriefing(true);
-    }, synthesisAt + SYNTHESIS_HOLD_MS);
-
-    return () => {
-      timers.forEach(window.clearTimeout);
-      window.clearTimeout(synthesisTimer);
-      window.clearTimeout(briefingTimer);
-    };
-  }, [council, decision]);
-
-  const steps = council ? buildDeliberationSteps(council) : [];
-  const visibleSteps = steps.slice(0, visibleAgentCount);
-  const dividerVisible = visibleSteps.some((s) => s.kind === "divider");
-  const openingAgents = visibleSteps.flatMap((s) =>
-    s.kind === "agent" && s.phase === "opening" ? [s.agent] : [],
-  );
-  const rebuttalAgents = visibleSteps.flatMap((s) =>
-    s.kind === "agent" && s.phase === "rebuttal" ? [s.agent] : [],
-  );
-  const shouldShowThinking =
-    councilLoading ||
-    Boolean(council && visibleAgentCount < steps.length);
-
-  const nextStep =
-    !councilLoading && council && visibleAgentCount < steps.length
-      ? steps[visibleAgentCount]
-      : null;
-
-  const deliberationStatusLabel = councilLoading
-    ? "Assembling Council..."
-    : nextStep
-      ? nextStep.kind === "agent"
-        ? `${nextStep.agent.name} composing…`
-        : "Panel regrouping between rounds…"
-      : "Deliberation in progress…";
+  const deliberationStatusLabel =
+    council.status === "failed"
+      ? "Council stream interrupted"
+      : council.currentSpeaker
+        ? council.currentSpeaker
+        : isStillStreaming
+          ? "Awaiting next turn…"
+          : "Deliberation in progress…";
 
   return (
     <section className="mt-12 pb-12 animate-[fadeIn_500ms_ease-out_forwards]">
@@ -200,9 +260,9 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
               Council Deliberation
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-              Opening positions render as instrumented roster tiles. If a second
-              round exists, it plays out in a separate cross-fire channel—not
-              another paragraph stack.
+              Four advisors deliberate over two rounds. Each speaks in turn,
+              streamed live as their model finishes. Round 2 is a separate
+              cross-fire channel where they react to each other.
             </p>
           </div>
 
@@ -221,7 +281,7 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
             </div>
 
             <div className="space-y-4">
-              {openingAgents.map((agent, i) => (
+              {council.round1.map((agent, i) => (
                 <AgentCard
                   key={`opening-${agent.name}-${i}`}
                   agent={agent}
@@ -233,11 +293,11 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
 
             {dividerVisible ? (
               <div className="mt-10">
-                <RoundTwoChamber agents={rebuttalAgents} />
+                <RoundTwoChamber agents={council.round2} />
               </div>
             ) : null}
 
-            {shouldShowThinking ? (
+            {isStillStreaming ? (
               <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4">
                 <div className="flex items-center gap-3">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
@@ -248,7 +308,7 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
               </div>
             ) : null}
 
-            {isSynthesizing ? (
+            {council.isSynthesizing ? (
               <div className="mt-6 rounded-xl border border-amber-200/90 bg-amber-50/80 px-4 py-4">
                 <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-amber-800">
                   Synthesizing judgment...
@@ -256,16 +316,23 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
               </div>
             ) : null}
 
-            {councilError ? (
-              <p className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                {councilError}
-              </p>
+            {council.errors.length > 0 ? (
+              <ul className="mt-6 space-y-2">
+                {council.errors.map((msg, i) => (
+                  <li
+                    key={i}
+                    className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                  >
+                    {msg}
+                  </li>
+                ))}
+              </ul>
             ) : null}
           </div>
         </section>
       </div>
 
-      {showBriefing && council ? (
+      {council.briefing ? (
         <div className="mt-12 min-w-0">
           <Briefing briefing={council.briefing} />
           <p className="mt-5 text-sm text-slate-600">

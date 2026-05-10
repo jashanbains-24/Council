@@ -33,3 +33,16 @@ export type CouncilResponse = {
 export type ReasoningResponse = {
   response: string;
 };
+
+/** Streaming event protocol used by /api/council (NDJSON, one JSON per line). */
+export type CouncilStreamEvent =
+  | {
+      type: "turn";
+      phase: "opening" | "rebuttal";
+      agent: AgentResponse;
+      model: string;
+      usedFallback: boolean;
+    }
+  | { type: "synthesizing" }
+  | { type: "briefing"; briefing: Briefing }
+  | { type: "error"; message: string; agent?: AgentName };

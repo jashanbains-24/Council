@@ -1,146 +1,147 @@
 # Council Deliberation Plan
 
-This file captures the decisions, plan, and open questions for the next phase of work on Council. It is the single forward-looking source of truth. If anything in `BUILD_PLAN.md` or `NEXT_SESSION_PROMPT.md` conflicts, this file wins.
+This file captures the decisions, plan, and open questions for Council. It is the single forward-looking source of truth. If anything in `BUILD_PLAN.md`, `AGENTS.MD`, or `NEXT_SESSION_PROMPT.md` conflicts, this file wins.
 
-## Snapshot
+## Snapshot — what is true today
+
+**Phase 1 (refactor + streaming) is DONE.**
+**Phase 2 (live CLōD integration) is DONE and verified live four times via curl.**
 
 What is working today:
-- Next.js 14 app router scaffold, Tailwind dark UI, TypeScript types in `lib/types.ts`.
-- Mock backend in `lib/council.ts` powered by `lib/mock.ts`.
-- POST routes at `app/api/reasoning/route.ts` and `app/api/council/route.ts`.
+- Next.js 14 app router scaffold, Tailwind UI, TypeScript types in `lib/types.ts`.
+- Mock backend in `lib/council.ts` (`mockCouncil`, `mockCouncilStream`, `mockReasoning`).
+- Real backend in `lib/council.ts` (`realCouncil`, `realCouncilStream`, `realReasoning`).
+- POST `app/api/reasoning/route.ts` — single CLōD call, JSON response.
+- POST `app/api/council/route.ts` — **NDJSON streaming** of 9 CLōD events (8 turns + briefing).
+- `app/components/ComparisonView.tsx` consumes the NDJSON stream via `response.body.getReader()` and renders agents one at a time as they arrive.
 - Landing page with editable assumption input.
-- Split-screen comparison: single model vs Council.
-- Council animation reveals 4 agent cards, briefing card, pause callout, raw JSON.
-- Recent fixes: post-submit auto-scroll to results, briefing column no longer overflows horizontally.
-- Production smoke test: `/`, `/api/reasoning`, `/api/council` all 200.
-- `MOCK_API=true` is the default and must stay default until live testing.
+- Round 1: full-width agent cards with abstract glyphs.
+- Round 2: separate "cross-fire channel" panel (`RoundTwoChamber.tsx`) with alternating left/right alignment.
+- Synthesizer briefing card (`Briefing.tsx`) with confidence badge, dissent, biggest risk, raw JSON, and pause callout.
+- Per-card typewriter effect via `lib/deliberation-pacing.ts::getSimulatedTypingMs`.
+- `MOCK_API=true` is the safe demo default; flip to `false` for live runs.
+- `npm run lint` and `npm run build` pass cleanly.
 
-What is not working yet:
-- `realReasoning` and `realCouncil` in `lib/council.ts` are explicit stubs. No CLōD calls yet.
-- The current UI shows 4 single-shot agent responses. The agreed product flow is 2 sequential rounds (8 turns) + synthesis.
+Verified live curl runs (in chronological order):
+1. First run — confirmed streaming works one event at a time, but Strategist's `GPT-5` model id was rejected and synthesis fell back.
+2. Second run — confirmed canonical lowercase model ids, `claude-opus-4-7` rejected for synth.
+3. Third run — synth fixed via `claude-sonnet-4-5`, but `gpt-5-mini` was also rejected on this account and the DeepSeek V3.2 fallback leaked CoT into Strategist's response.
+4. Fourth run — **all 4 advisors on assigned models with `usedFallback:false`, synth produced real briefing JSON, tone is conversational, no CoT leaks, ~25-35 second total.**
+
+What is NOT done yet:
+- **Browser smoke test of the live stream.** The UI is wired but has only been visually verified in mock mode by the teammate. We need to load `http://localhost:3000` with `MOCK_API=false` and confirm the stream renders correctly in the browser.
+- Visual polish (intentionally deferred per user). The UI is light/cream rather than the dark spec in `AGENTS.MD` — the user chose to leave the visual style alone for now. Revisit at the end.
+- Restore `MOCK_API=true` after live testing is complete, so the demo is reproducible without burning credits.
 
 ## Product framing (locked)
 
-- Council is a thinking-phase **tool** that an AI calls when it hits a significant assumption.
+- Council is a thinking-phase **tool** that an AI agent calls when it hits a significant assumption.
 - The tool spawns multiple agent personas that deliberate; a synthesizer returns structured JSON the parent AI can consume.
 - No human-in-the-loop. The website is a visualization of the internal deliberation, used for the demo.
 - One-line pitch: **"Don't assume. Consult."**
 
-## Architectural decision (locked)
+## Architecture (locked)
 
 - Pattern: **sequential, 2 cycles, 4 agents, 1 synthesizer**.
-- Agents and order: **Strategist → Skeptic → Operator → Psychologist**.
+- Order: **Strategist → Skeptic → Operator → Psychologist** (both rounds).
 - Round 1: each agent reads the assumption + all prior turns in this round.
 - Round 2: each agent reads the assumption + all 4 Round 1 turns + any Round 2 turns produced before them.
 - Synthesizer (call 9) reads the full 8-turn transcript and returns the Briefing JSON.
 - Hard cap at 2 rounds. No looping. No early exits.
 - Total CLōD calls per Council run: **9**, plus **1** for the single-model panel = **10 calls per demo run**.
 
-Why sequential and not parallel:
-- The product goal is the human feel of agents arguing with each other.
-- Each agent must be able to disagree with what came before. Parallel calls cannot do that.
+## Data shape (live)
 
-## CLōD integration cheatsheet
+The original plan proposed migrating `CouncilResponse.agents: AgentResponse[]` to a unified `transcript: CouncilTurn[]`. **We deliberately did NOT make this change** — the teammate's existing UI consumed the `agents` + `discussionFollowUp` shape, and switching shapes would have forced a UI rewrite for zero functional gain.
 
-- Base URL: `https://api.clod.io/v1`
-- Auth header: `Authorization: Bearer ${CLOD_API_KEY}`
-- Model id: `"DeepSeek V3"` (exact string)
-- Tokens: use `max_completion_tokens`, not `max_tokens`
-- Temperature: `0.7`
-- API is OpenAI-compatible, use the `openai` npm package with `baseURL` + `apiKey`
-- Streaming supported via `stream: true`
-- Free tier: **100 requests/day**, auto-replenished — that's roughly **10 full Council demos per day**
-
-Token budgets to start with:
-- Each agent turn: `max_completion_tokens: 200`
-- Synthesizer: `max_completion_tokens: 400`
-- Single-model panel: `max_completion_tokens: 200`
-
-## Data shape changes (Phase 1)
-
-Current `CouncilResponse` has a flat `agents: CouncilAgent[]` of 4 items.
-
-Target shape (additive, do not break existing fields if possible):
+Actual shape in use:
 
 ```ts
-export type CouncilTurn = {
-  agent: "Strategist" | "Skeptic" | "Operator" | "Psychologist";
-  role: string;
-  cycle: 1 | 2;
-  response: string;
+export type CouncilResponse = {
+  agents: AgentResponse[];          // Round 1, 4 entries
+  discussionFollowUp?: AgentResponse[]; // Round 2, 4 entries
+  briefing: Briefing;
 };
 
-export type CouncilResponse = {
-  transcript: CouncilTurn[]; // 8 entries in deliberation order
-  briefing: Briefing;        // unchanged
-  agents?: CouncilAgent[];   // legacy, can be derived from transcript or removed
-};
+export type CouncilStreamEvent =
+  | { type: "turn"; phase: "opening" | "rebuttal"; agent: AgentResponse; model: string; usedFallback: boolean }
+  | { type: "synthesizing" }
+  | { type: "briefing"; briefing: Briefing }
+  | { type: "error"; message: string; agent?: AgentName };
 ```
 
-UI consumes `transcript` directly and renders turns in order with a cycle label.
+The streaming protocol is the source of truth for the live pipeline; `realCouncil` (non-streaming) is a thin wrapper that collects the stream into a single `CouncilResponse` for any caller that wants JSON.
 
-## Phase plan
+## CLōD model lineup (locked, all canonical lowercase api ids)
 
-### Phase 1 — Refactor and streaming (no API key needed)
+Confirmed live on the user's account via the fourth verified run.
 
-1. Refactor `lib/types.ts` to add `CouncilTurn` and `transcript` on `CouncilResponse`.
-2. Rewrite `lib/mock.ts` to produce a believable 8-turn transcript that matches the demo assumption (Postgres database scenario), with each Round 2 turn explicitly reacting to Round 1.
-3. Convert `app/api/council/route.ts` to **NDJSON streaming**. Event types:
-   - `{"type":"turn", "turn": CouncilTurn}` — emitted as each turn finishes
-   - `{"type":"synthesizing"}` — emitted before the synthesis call
-   - `{"type":"briefing", "briefing": Briefing}` — emitted with the final briefing
-   - `{"type":"error", "message": string}` — on any failure
-4. Mock backend fake-streams turns with realistic delays (~600ms per turn) so the UI can be tested end-to-end without spending CLōD credits.
-5. Update `ComparisonView` to consume the NDJSON stream via `fetch` + `response.body.getReader()`. Render turns one-by-one in order. Label each card with `Round 1` or `Round 2`.
-6. Decide and implement the open Round 2 UI question (see below).
-7. `npm run lint && npm run build` must pass. Smoke test the mock demo.
+| Role | Model | Why |
+|---|---|---|
+| Strategist | `gpt-4.1` | Confident OpenAI workhorse. Reliable. No CoT leak. |
+| Skeptic | `grok-4` | xAI default-contrarian voice. Best at adversarial pushback. |
+| Operator | `Qwen/Qwen3-235B-A22B-Thinking-2507` | Analytical, procedural, distinct vendor. |
+| Psychologist | `claude-sonnet-4-5` | Best at human-dynamics, reframing voice. |
+| Synthesizer (call 9) | `claude-sonnet-4-5` | Reliable strict-JSON output. Temperature 0.2. |
+| Single-pass left panel | `fireworks/deepseek-v3p2` | Rambly thinking-style output is the demo contrast against Council. |
+| Silent fallback (any agent error) | `gpt-4o-mini` | Cheap, fast, no CoT leak. NEVER use a "thinking" model here — it leaks CoT into responses and breaks persona. |
 
-### Phase 2 — Real CLōD (requires `CLOD_API_KEY`)
+Hard rules learned the hard way:
+- **Use canonical lowercase api ids** (the strings `GET /v1/models` returns), not the display names from `clod.io/models`. Display name aliasing is inconsistent.
+- **Do NOT use thinking-style models for agent personas** (DeepSeek R1, DeepSeek V3.2, gpt-5 series rejected this account, Qwen "Thinking" variant is fine because it doesn't emit visible CoT). Reserve them for the single-pass baseline.
+- **gpt-5 and gpt-5-mini are rejected on this account.** Don't try them again.
+- **claude-opus-4-7 is rejected on this account.** Use claude-sonnet-4-5 instead.
 
-1. `npm install openai`.
-2. Implement `realReasoning(decision)` — one CLōD call powering the left "Single Model Response" panel.
-3. Implement `realCouncil(decision)`:
-   - Build the running `messages` array for each turn. System prompt is the agent persona; user message is the assumption; prior turns are injected as `assistant` messages prefixed with the speaker name.
-   - Execute 8 sequential turn calls.
-   - Execute the synthesizer call with all 8 turns + the assumption.
-   - Parse synthesis as JSON (strip optional markdown fences first). Validate it matches the `Briefing` shape.
-   - Stream each turn out via the same NDJSON channel as Phase 1.
-4. Safe fallbacks:
-   - If any individual turn fails, emit an `error` event for that turn but keep going.
-   - If synthesis fails or JSON is malformed, return a fallback briefing that says Council was unable to synthesize and recommends pausing.
-5. Test order, with explicit user approval before each step:
-   - One test call with `max_completion_tokens: 50` to confirm auth works.
-   - One full Round 1 (4 turns) live, no synthesizer, no Round 2.
-   - Full 2-round + synthesizer live, end-to-end.
-   - Restore `MOCK_API=true` so the demo state is safe.
+## Token budgets (locked)
 
-### Phase 3 — Optional polish
+```ts
+const AGENT_TOKEN_LIMIT = 180;     // 2-3 sentences per turn
+const SYNTHESIS_TOKEN_LIMIT = 700; // full briefing JSON with margin
+const REASONING_TOKEN_LIMIT = 200; // single-pass left panel
+```
 
-- Add a small "Tool call from thinking phase" preamble in `ComparisonView` so the framing is unmistakable to demo viewers.
-- Add a tiny request counter so the user knows how many of their 100 daily free requests have been spent.
-- Final demo pass per `BUILD_PLAN.md` Step 7.
+Synthesis call uses `temperature: 0.2`. All other calls default to `0.7`.
 
-## Open decisions (need user input before Phase 1 step 6)
+## Conversational prompt rules (locked)
 
-**Round 2 visual layout:**
-- Option A (transcript): each Round 2 turn appears as a new card underneath the Round 1 cards. The full 8-card transcript reads top-to-bottom. **Recommended.**
-- Option B (per-agent): each agent has a single card that updates with their latest take. Round 2 replaces or appends inside the same card.
+The shared rules and personas in `lib/council.ts` were rewritten to make the agents sound like four real people in a room arguing — not four formal essays. Key rules:
 
-Default if no answer: Option A.
+- 2-3 sentences MAX. Be terse.
+- Talk *to* other advisors by name. Use contractions.
+- React: "Yeah but…", "I don't buy that because…", "Fair point, but you're missing…".
+- No preamble. No "Great point." No markdown headers or bullet lists.
+
+This is what produced the live output: *"Strategist, you're hand-waving the part where 'everyone knows it' means nothing when your query performance tanks at 100 concurrent users..."*
+
+## Streaming UX (locked)
+
+`ComparisonView` consumes NDJSON from `/api/council`:
+- Each `turn` event appends to `round1` or `round2` state and triggers a fresh `AgentCard` render.
+- `synthesizing` event flips an indicator banner.
+- `briefing` event renders the `Briefing` card.
+- `error` events accumulate into a list and render as red callout cards (silent per-turn fallbacks do NOT emit errors — the UI never sees them).
+
+The mock backend (`mockCouncilStream`) fake-streams with ~1.4s delays so dev/demo without CLōD looks identical to live.
+
+## Open / next steps
+
+1. **Browser smoke test of live stream.** Load `http://localhost:3000` with `MOCK_API=false` and click "Convene Council". Verify each card appears one-at-a-time, typewriter plays, Round 2 panel opens, briefing renders. Capture any UI issues for targeted fixes.
+2. **Targeted UI fixes (only what the smoke test surfaces).** Likely candidates: a more visible "current speaker" indicator since real CLōD takes 5-10s per turn, and a "what model is this" badge per card to show off the multi-model architecture.
+3. **Restore `MOCK_API=true`** so the recorded demo state is reproducible. Mock fake-streams now too, so the visual experience is the same.
+4. **Optional visual polish.** The UI is light/cream not dark — user explicitly deferred this. Touch only if there is time after the demo is reliable.
+5. **Optional: a small "Tool call from thinking phase" preamble** in `ComparisonView` so the framing (this is a tool an AI calls, not a chatbot) is unmistakable to demo viewers.
 
 ## Constraints to respect
 
-- Keep `MOCK_API=true` as the default until explicit live testing is requested.
-- Never commit `.env.local`. Never expose `CLOD_API_KEY` to the client.
-- Do not rebuild the project from scratch.
-- Visual style: dark, sharp, infrastructure-flavored. No purple gradients, chat bubbles, or rounded pill buttons.
-- `npm run dev` previously hit an EMFILE watcher limit locally. Use production mode for viewing if it happens:
-  1. `npm run build`
-  2. `npm run start -- -p 3000`
-  3. Open http://localhost:3000
+- Keep `MOCK_API=true` as the default unless explicit live testing is requested.
+- Never commit `.env.local`. `.gitignore` already excludes it; do not change that.
+- Never expose `CLOD_API_KEY` to the client. All CLōD calls must be server-side.
+- Visual style: dark, sharp, infrastructure-flavored per `AGENTS.MD`. Currently light/cream — deferred. No purple gradients, no chat bubbles, no rounded pill buttons.
+- `npm run dev` previously hit an EMFILE watcher limit locally. Use production mode: `npm run build && npm run start -- -p 3000`.
+- Do NOT use thinking-style models for agent personas (see CLōD model lineup above).
+- Do NOT use display names from `clod.io/models` as model ids — use canonical ids from `GET /v1/models`.
 
 ## Pending inputs from the user
 
-- `CLOD_API_KEY` placed in `.env.local` (only needed when starting Phase 2).
-- Answer to the Round 2 UI question above (only needed during Phase 1 step 6).
-- Confirmation that the teammate's UI updates have been pulled before any new edits begin.
+- Browser smoke test feedback (the next session's first practical task).
+- Approval for any visual polish before merging it.
