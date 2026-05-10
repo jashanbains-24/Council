@@ -23,7 +23,7 @@ body {
   background:
     radial-gradient(
       ellipse 90% 60% at 50% -10%,
-      rgba(201, 164, 73, 0.06) 0%,
+      rgba(201, 164, 73, 0.078) 0%,
       transparent 60%
     ),
     radial-gradient(
