@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AgentCard } from "./AgentCard";
 import { Briefing } from "./Briefing";
-import { ReasoningPanel } from "./ReasoningPanel";
-import { RoundTwoChamber } from "./RoundTwoChamber";
+import { ChatDivider } from "./ChatDivider";
+import { ChatPlaceholder } from "./ChatPlaceholder";
+import { ChatTurn } from "./ChatTurn";
+import { SingleModelTurn } from "./SingleModelTurn";
 import type {
+  AgentName,
   AgentResponse,
   Briefing as BriefingType,
   CouncilStreamEvent,
@@ -30,8 +32,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 
 /**
  * Streams NDJSON events from /api/council. Calls onEvent for every parsed
- * event and resolves once the body is fully consumed. Throws on transport
- * failure; per-turn model failures are reported as `error` events.
+ * event and resolves once the body is fully consumed.
  */
 async function streamCouncil(
   decision: string,
@@ -87,7 +88,6 @@ type CouncilState = {
   briefing: BriefingType | null;
   errors: string[];
   status: "idle" | "streaming" | "done" | "failed";
-  currentSpeaker: string | null;
 };
 
 const INITIAL_COUNCIL: CouncilState = {
@@ -97,10 +97,14 @@ const INITIAL_COUNCIL: CouncilState = {
   briefing: null,
   errors: [],
   status: "idle",
-  currentSpeaker: null,
 };
 
-const ROUND_ORDER: Array<{ phase: "opening" | "rebuttal"; name: string }> = [
+type SpeakerSlot = {
+  name: AgentName;
+  phase: "opening" | "rebuttal";
+};
+
+const ROUND_ORDER: SpeakerSlot[] = [
   { phase: "opening", name: "Strategist" },
   { phase: "opening", name: "Skeptic" },
   { phase: "opening", name: "Operator" },
@@ -111,12 +115,10 @@ const ROUND_ORDER: Array<{ phase: "opening" | "rebuttal"; name: string }> = [
   { phase: "rebuttal", name: "Psychologist" },
 ];
 
-function nextSpeakerLabel(round1: number, round2: number): string | null {
+function nextSpeaker(round1: number, round2: number): SpeakerSlot | null {
   const completed = round1 + round2;
   if (completed >= ROUND_ORDER.length) return null;
-  const next = ROUND_ORDER[completed];
-  const phaseLabel = next.phase === "opening" ? "Round 1" : "Round 2";
-  return `${next.name} composing… (${phaseLabel})`;
+  return ROUND_ORDER[completed];
 }
 
 export function ComparisonView({ decision }: ComparisonViewProps) {
@@ -133,11 +135,7 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
     setReasoning(null);
     setReasoningLoading(true);
     setReasoningError(null);
-    setCouncil({
-      ...INITIAL_COUNCIL,
-      status: "streaming",
-      currentSpeaker: nextSpeakerLabel(0, 0),
-    });
+    setCouncil({ ...INITIAL_COUNCIL, status: "streaming" });
 
     postJson<ReasoningResponse>("/api/reasoning", { decision })
       .then((result) => {
@@ -166,15 +164,10 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
             event.phase === "rebuttal"
               ? [...prev.round2, event.agent]
               : prev.round2;
-          return {
-            ...prev,
-            round1,
-            round2,
-            currentSpeaker: nextSpeakerLabel(round1.length, round2.length),
-          };
+          return { ...prev, round1, round2 };
         }
         if (event.type === "synthesizing") {
-          return { ...prev, isSynthesizing: true, currentSpeaker: null };
+          return { ...prev, isSynthesizing: true };
         }
         if (event.type === "briefing") {
           return {
@@ -182,7 +175,6 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
             isSynthesizing: false,
             briefing: event.briefing,
             status: "done",
-            currentSpeaker: null,
           };
         }
         if (event.type === "error") {
@@ -197,7 +189,6 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
         setCouncil((prev) => ({
           ...prev,
           status: "failed",
-          currentSpeaker: null,
           errors: [
             ...prev.errors,
             "Council could not complete this run. The agent should not proceed blindly.",
@@ -211,141 +202,123 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
     };
   }, [decision]);
 
-  const totalDelivered = council.round1.length + council.round2.length;
-  const isStillStreaming =
-    council.status === "streaming" && totalDelivered < ROUND_ORDER.length;
-  const dividerVisible = council.round1.length === 4 || council.round2.length > 0;
+  const upcomingSpeaker =
+    council.status === "streaming" && !council.isSynthesizing
+      ? nextSpeaker(council.round1.length, council.round2.length)
+      : null;
 
-  const deliberationStatusLabel =
-    council.status === "failed"
-      ? "Council stream interrupted"
-      : council.currentSpeaker
-        ? council.currentSpeaker
-        : isStillStreaming
-          ? "Awaiting next turn…"
-          : "Deliberation in progress…";
+  // Show the Round II divider once Round 1 is fully delivered.
+  const showRoundTwoDivider =
+    council.round1.length === 4 ||
+    council.round2.length > 0 ||
+    upcomingSpeaker?.phase === "rebuttal";
 
   return (
-    <section className="mt-12 pb-12 animate-[fadeIn_500ms_ease-out_forwards]">
-      <div className="mb-8 rounded-2xl border border-slate-200/90 bg-white/90 p-6 shadow-council backdrop-blur-sm">
-        <p className="font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
-          Assumption point detected
-        </p>
-        <p className="mt-3 text-sm leading-relaxed text-slate-700">{decision}</p>
-      </div>
+    <section className="mt-10 pb-12 animate-[fadeIn_500ms_ease-out_forwards]">
+      <div className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-slate-200/90 bg-white/80 shadow-council-md backdrop-blur-sm">
+        <header className="border-b border-slate-100 bg-gradient-to-br from-white to-slate-50/80 px-6 py-5">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+              Council session · live
+            </p>
+          </div>
+          <p className="mt-3 text-[15px] leading-relaxed text-slate-800">
+            {decision}
+          </p>
+        </header>
 
-      <div className="flex flex-col gap-12">
-        <div className="min-w-0">
-          <ReasoningPanel
+        <div className="space-y-5 bg-[radial-gradient(circle_at_top,rgba(241,245,249,0.6),transparent_60%)] px-4 py-6 sm:px-6">
+          <SingleModelTurn
             response={reasoning}
             isLoading={reasoningLoading}
             error={reasoningError}
           />
-        </div>
 
-        <div className="flex items-center gap-5">
-          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
-          <span className="font-display text-2xl font-medium tracking-tight text-slate-400">
-            VS
-          </span>
-          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
-        </div>
+          <ChatDivider
+            label="Council convened"
+            hint="4 advisors · 2 rounds · synthesizer returns structured judgment"
+            variant="warm"
+          />
 
-        <section className="min-h-[28rem] overflow-hidden rounded-2xl border border-slate-200/90 bg-council-deliberation shadow-council-md">
-          <div className="border-b border-amber-100/80 bg-gradient-to-r from-white/90 to-amber-50/30 px-6 py-5">
-            <p className="font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
-              Council
-            </p>
-            <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
-              Council Deliberation
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-              Four advisors deliberate over two rounds. Each speaks in turn,
-              streamed live as their model finishes. Round 2 is a separate
-              cross-fire channel where they react to each other.
-            </p>
-          </div>
+          {council.round1.map((agent, i) => (
+            <ChatTurn
+              key={`opening-${agent.name}-${i}`}
+              agent={agent}
+              phase="opening"
+            />
+          ))}
 
-          <div className="p-6">
-            <div className="mb-6">
-              <p className="font-mono text-[10px] font-medium uppercase tracking-[0.28em] text-slate-500">
-                Round I
-              </p>
-              <h3 className="mt-1 font-display text-lg font-medium text-slate-900">
-                Initial positions
-              </h3>
-              <p className="mt-2 text-xs text-slate-600">
-                Each advisor is a rendered node: glyph, lane id, and opening
-                stance.
+          {upcomingSpeaker?.phase === "opening" ? (
+            <ChatPlaceholder
+              key={`placeholder-opening-${upcomingSpeaker.name}`}
+              name={upcomingSpeaker.name}
+              phase="opening"
+            />
+          ) : null}
+
+          {showRoundTwoDivider ? (
+            <ChatDivider label="Round II — replies" variant="cool" />
+          ) : null}
+
+          {council.round2.map((agent, i) => (
+            <ChatTurn
+              key={`rebuttal-${agent.name}-${i}`}
+              agent={agent}
+              phase="rebuttal"
+            />
+          ))}
+
+          {upcomingSpeaker?.phase === "rebuttal" ? (
+            <ChatPlaceholder
+              key={`placeholder-rebuttal-${upcomingSpeaker.name}`}
+              name={upcomingSpeaker.name}
+              phase="rebuttal"
+            />
+          ) : null}
+
+          {council.isSynthesizing ? (
+            <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-200 bg-amber-50/80 px-3 py-1.5">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-800">
+                Synthesizing judgment
               </p>
             </div>
+          ) : null}
 
-            <div className="space-y-4">
-              {council.round1.map((agent, i) => (
-                <AgentCard
-                  key={`opening-${agent.name}-${i}`}
-                  agent={agent}
-                  index={i}
-                  phase="opening"
-                />
+          {council.briefing ? (
+            <>
+              <ChatDivider label="Verdict returned to agent" variant="warm" />
+              <Briefing briefing={council.briefing} />
+              <p className="mx-auto max-w-md text-center text-[11px] leading-relaxed text-slate-500">
+                The agent received this as structured JSON and continued its
+                task — no human interruption required.
+              </p>
+            </>
+          ) : null}
+
+          {council.status === "failed" ? (
+            <div className="rounded-xl border border-red-200 bg-red-50/80 p-4">
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-red-700">
+                Council stream interrupted
+              </p>
+            </div>
+          ) : null}
+
+          {council.errors.length > 0 ? (
+            <ul className="space-y-2">
+              {council.errors.map((msg, i) => (
+                <li
+                  key={i}
+                  className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+                >
+                  {msg}
+                </li>
               ))}
-            </div>
-
-            {dividerVisible ? (
-              <div className="mt-10">
-                <RoundTwoChamber agents={council.round2} />
-              </div>
-            ) : null}
-
-            {isStillStreaming ? (
-              <div className="mt-6 rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4">
-                <div className="flex items-center gap-3">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-                  <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-slate-600">
-                    {deliberationStatusLabel}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            {council.isSynthesizing ? (
-              <div className="mt-6 rounded-xl border border-amber-200/90 bg-amber-50/80 px-4 py-4">
-                <p className="font-mono text-xs font-medium uppercase tracking-[0.2em] text-amber-800">
-                  Synthesizing judgment...
-                </p>
-              </div>
-            ) : null}
-
-            {council.errors.length > 0 ? (
-              <ul className="mt-6 space-y-2">
-                {council.errors.map((msg, i) => (
-                  <li
-                    key={i}
-                    className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-                  >
-                    {msg}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        </section>
-      </div>
-
-      {council.briefing ? (
-        <div className="mt-12 min-w-0">
-          <Briefing briefing={council.briefing} />
-          <p className="mt-5 text-sm text-slate-600">
-            The agent received this as structured JSON and updated its next
-            action.
-          </p>
-          <p className="mt-8 text-center font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
-            {council.briefing.should_ask_human
-              ? "Council flagged missing information. Prefer a targeted human check before acting."
-              : "Council closed the loop internally. Proceed using the recommendation and documented risks."}
-          </p>
+            </ul>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }
