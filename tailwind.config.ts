@@ -8,26 +8,42 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        council: {
-          canvas: "#f1f5f9",
-          surface: "#ffffff",
-          elevated: "#f8fafc",
-          reasoning: "#f0f4f8",
-          deliberation: "#fffdfb",
-          json: "#f1f5f9",
-          border: "#e2e8f0",
-          ink: "#0f172a",
+        ink: {
+          DEFAULT: "#f4f1ea",
+          soft: "#c4c0b6",
+          muted: "#9a978f",
+          faint: "#6a6862",
+          dim: "#48484c",
+        },
+        surface: {
+          DEFAULT: "#0a0a0b",
+          raised: "#111113",
+          elevated: "#15151a",
+          higher: "#1a1a20",
+          line: "#222226",
+          "line-strong": "#34343a",
+        },
+        accent: {
+          DEFAULT: "#c9a449",
+          muted: "#7d6730",
+          dim: "#3d321a",
+        },
+        agent: {
+          strategist: "#c9a449",
+          skeptic: "#c97a6f",
+          operator: "#7eb6c8",
+          psychologist: "#9ab39a",
         },
       },
-      boxShadow: {
-        council: "0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.04)",
-        "council-md":
-          "0 4px 6px rgba(15, 23, 42, 0.05), 0 12px 28px rgba(15, 23, 42, 0.08)",
-      },
       fontFamily: {
-        display: ["var(--font-playfair)", "serif"],
         sans: ["var(--font-plex-sans)", "ui-sans-serif", "system-ui"],
         mono: ["var(--font-plex-mono)", "ui-monospace", "monospace"],
+      },
+      letterSpacing: {
+        tightest: "-0.045em",
+        wider: "0.06em",
+        widest: "0.18em",
+        "ultra-wide": "0.28em",
       },
     },
   },

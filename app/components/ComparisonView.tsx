@@ -30,10 +30,6 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return response.json();
 }
 
-/**
- * Streams NDJSON events from /api/council. Calls onEvent for every parsed
- * event and resolves once the body is fully consumed.
- */
 async function streamCouncil(
   decision: string,
   signal: AbortSignal,
@@ -115,10 +111,20 @@ const ROUND_ORDER: SpeakerSlot[] = [
   { phase: "rebuttal", name: "Psychologist" },
 ];
 
+const TOTAL_TURNS = ROUND_ORDER.length;
+
 function nextSpeaker(round1: number, round2: number): SpeakerSlot | null {
   const completed = round1 + round2;
-  if (completed >= ROUND_ORDER.length) return null;
+  if (completed >= TOTAL_TURNS) return null;
   return ROUND_ORDER[completed];
+}
+
+function nowStamp(): string {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
 }
 
 export function ComparisonView({ decision }: ComparisonViewProps) {
@@ -127,6 +133,7 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
   const [reasoningError, setReasoningError] = useState<string | null>(null);
 
   const [council, setCouncil] = useState<CouncilState>(INITIAL_COUNCIL);
+  const [sessionStarted] = useState(() => nowStamp());
 
   useEffect(() => {
     let cancelled = false;
@@ -202,123 +209,247 @@ export function ComparisonView({ decision }: ComparisonViewProps) {
     };
   }, [decision]);
 
+  const completedTurns = council.round1.length + council.round2.length;
   const upcomingSpeaker =
     council.status === "streaming" && !council.isSynthesizing
       ? nextSpeaker(council.round1.length, council.round2.length)
       : null;
 
-  // Show the Round II divider once Round 1 is fully delivered.
-  const showRoundTwoDivider =
+  const showRoundTwoMarker =
     council.round1.length === 4 ||
     council.round2.length > 0 ||
     upcomingSpeaker?.phase === "rebuttal";
 
+  const statusLabel =
+    council.status === "failed"
+      ? "interrupted"
+      : council.briefing
+        ? "complete"
+        : council.isSynthesizing
+          ? "synthesizing"
+          : "deliberating";
+
+  const statusDot =
+    council.status === "failed"
+      ? "bg-red-400"
+      : council.briefing
+        ? "bg-emerald-400"
+        : "bg-accent";
+
   return (
-    <section className="mt-10 pb-12 animate-[fadeIn_500ms_ease-out_forwards]">
-      <div className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-slate-200/90 bg-white/80 shadow-council-md backdrop-blur-sm">
-        <header className="border-b border-slate-100 bg-gradient-to-br from-white to-slate-50/80 px-6 py-5">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-              Council session · live
+    <section className="opacity-0 animate-[fadeIn_500ms_ease-out_forwards]">
+      <SessionHeader
+        decision={decision}
+        startStamp={sessionStarted}
+        completed={completedTurns}
+        total={TOTAL_TURNS}
+        status={statusLabel}
+        statusDot={statusDot}
+      />
+
+      <div className="mt-10 space-y-7">
+        <SingleModelTurn
+          response={reasoning}
+          isLoading={reasoningLoading}
+          error={reasoningError}
+        />
+
+        <ChatDivider
+          label="council convened"
+          hint="04 advisors · 02 rounds · sequential"
+          variant="warm"
+        />
+
+        {council.round1.map((agent, i) => (
+          <ChatTurn
+            key={`opening-${agent.name}-${i}`}
+            agent={agent}
+            phase="opening"
+            index={i + 1}
+            total={TOTAL_TURNS}
+          />
+        ))}
+
+        {upcomingSpeaker?.phase === "opening" ? (
+          <ChatPlaceholder
+            key={`placeholder-opening-${upcomingSpeaker.name}`}
+            name={upcomingSpeaker.name}
+            phase="opening"
+            index={council.round1.length + 1}
+            total={TOTAL_TURNS}
+          />
+        ) : null}
+
+        {showRoundTwoMarker ? (
+          <ChatDivider label="round ii — replies" variant="cool" />
+        ) : null}
+
+        {council.round2.map((agent, i) => (
+          <ChatTurn
+            key={`rebuttal-${agent.name}-${i}`}
+            agent={agent}
+            phase="rebuttal"
+            index={4 + i + 1}
+            total={TOTAL_TURNS}
+          />
+        ))}
+
+        {upcomingSpeaker?.phase === "rebuttal" ? (
+          <ChatPlaceholder
+            key={`placeholder-rebuttal-${upcomingSpeaker.name}`}
+            name={upcomingSpeaker.name}
+            phase="rebuttal"
+            index={4 + council.round2.length + 1}
+            total={TOTAL_TURNS}
+          />
+        ) : null}
+
+        {council.isSynthesizing ? (
+          <article className="opacity-0 animate-[fadeIn_280ms_ease-out_forwards]">
+            <div className="rule-draw mb-4 h-px origin-left bg-accent/50" />
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-ultra-wide text-accent">
+                [09/09] Synthesizer
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+                compiling structured judgment
+              </span>
+              <span className="ml-auto inline-block h-3.5 w-[6px] cursor-blink bg-accent" />
+            </div>
+          </article>
+        ) : null}
+
+        {council.briefing ? (
+          <Briefing briefing={council.briefing} />
+        ) : null}
+
+        {council.briefing ? (
+          <p className="mt-4 text-center font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+            {"// agent received structured json · session closed"}
+          </p>
+        ) : null}
+
+        {council.status === "failed" ? (
+          <div className="border border-red-500/30 bg-red-500/5 p-4">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-ultra-wide text-red-400">
+              council stream interrupted
             </p>
           </div>
-          <p className="mt-3 text-[15px] leading-relaxed text-slate-800">
-            {decision}
-          </p>
-        </header>
+        ) : null}
 
-        <div className="space-y-5 bg-[radial-gradient(circle_at_top,rgba(241,245,249,0.6),transparent_60%)] px-4 py-6 sm:px-6">
-          <SingleModelTurn
-            response={reasoning}
-            isLoading={reasoningLoading}
-            error={reasoningError}
-          />
-
-          <ChatDivider
-            label="Council convened"
-            hint="4 advisors · 2 rounds · synthesizer returns structured judgment"
-            variant="warm"
-          />
-
-          {council.round1.map((agent, i) => (
-            <ChatTurn
-              key={`opening-${agent.name}-${i}`}
-              agent={agent}
-              phase="opening"
-            />
-          ))}
-
-          {upcomingSpeaker?.phase === "opening" ? (
-            <ChatPlaceholder
-              key={`placeholder-opening-${upcomingSpeaker.name}`}
-              name={upcomingSpeaker.name}
-              phase="opening"
-            />
-          ) : null}
-
-          {showRoundTwoDivider ? (
-            <ChatDivider label="Round II — replies" variant="cool" />
-          ) : null}
-
-          {council.round2.map((agent, i) => (
-            <ChatTurn
-              key={`rebuttal-${agent.name}-${i}`}
-              agent={agent}
-              phase="rebuttal"
-            />
-          ))}
-
-          {upcomingSpeaker?.phase === "rebuttal" ? (
-            <ChatPlaceholder
-              key={`placeholder-rebuttal-${upcomingSpeaker.name}`}
-              name={upcomingSpeaker.name}
-              phase="rebuttal"
-            />
-          ) : null}
-
-          {council.isSynthesizing ? (
-            <div className="mx-auto flex w-fit items-center gap-2 rounded-full border border-amber-200 bg-amber-50/80 px-3 py-1.5">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-800">
-                Synthesizing judgment
-              </p>
-            </div>
-          ) : null}
-
-          {council.briefing ? (
-            <>
-              <ChatDivider label="Verdict returned to agent" variant="warm" />
-              <Briefing briefing={council.briefing} />
-              <p className="mx-auto max-w-md text-center text-[11px] leading-relaxed text-slate-500">
-                The agent received this as structured JSON and continued its
-                task — no human interruption required.
-              </p>
-            </>
-          ) : null}
-
-          {council.status === "failed" ? (
-            <div className="rounded-xl border border-red-200 bg-red-50/80 p-4">
-              <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-red-700">
-                Council stream interrupted
-              </p>
-            </div>
-          ) : null}
-
-          {council.errors.length > 0 ? (
-            <ul className="space-y-2">
-              {council.errors.map((msg, i) => (
-                <li
-                  key={i}
-                  className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
-                >
-                  {msg}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+        {council.errors.length > 0 ? (
+          <ul className="space-y-2">
+            {council.errors.map((msg, i) => (
+              <li
+                key={i}
+                className="border border-red-500/30 bg-red-500/5 p-3 font-mono text-[12px] text-red-400"
+              >
+                {msg}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </section>
+  );
+}
+
+const ADVISORS: Array<{ name: AgentName; color: string; side: "L" | "R" }> = [
+  { name: "Strategist", color: "#c9a449", side: "L" },
+  { name: "Skeptic", color: "#c97a6f", side: "R" },
+  { name: "Operator", color: "#7eb6c8", side: "L" },
+  { name: "Psychologist", color: "#9ab39a", side: "R" },
+];
+
+function SessionHeader({
+  decision,
+  startStamp,
+  completed,
+  total,
+  status,
+  statusDot,
+}: {
+  decision: string;
+  startStamp: string;
+  completed: number;
+  total: number;
+  status: string;
+  statusDot: string;
+}) {
+  return (
+    <div className="border border-surface-line bg-surface-elevated">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-surface-line px-5 py-3">
+        <span className="flex items-center gap-2">
+          <span className={`h-1.5 w-1.5 rounded-full ${statusDot} pulse-ring`} />
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-ultra-wide text-ink">
+            council session
+          </span>
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+          started · <span className="text-ink-soft">{startStamp}</span>
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint tabular-nums">
+          turns ·{" "}
+          <span className="text-ink-soft">
+            {String(completed).padStart(2, "0")} /{" "}
+            {String(total).padStart(2, "0")}
+          </span>
+        </span>
+        <span className="ml-auto font-mono text-[10px] font-semibold uppercase tracking-ultra-wide text-accent">
+          {status}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-surface-line bg-surface-raised px-5 py-2.5">
+        <span className="font-mono text-[9px] uppercase tracking-ultra-wide text-ink-faint">
+          advisors
+        </span>
+        {ADVISORS.map((a) => (
+          <span key={a.name} className="flex items-center gap-1.5">
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ background: a.color }}
+            />
+            <span
+              className="font-mono text-[9px] uppercase tracking-wider"
+              style={{ color: a.color }}
+            >
+              {a.name.toLowerCase()}
+            </span>
+            <span className="font-mono text-[8px] uppercase tracking-ultra-wide text-ink-dim">
+              {a.side}
+            </span>
+          </span>
+        ))}
+      </div>
+
+      <div className="px-5 py-4">
+        <p className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+          {"// assumption"}
+        </p>
+        <p className="mt-2 max-w-[78ch] text-[15px] leading-relaxed text-ink-soft">
+          {decision}
+        </p>
+      </div>
+      <ProgressBar completed={completed} total={total} />
+    </div>
+  );
+}
+
+function ProgressBar({ completed, total }: { completed: number; total: number }) {
+  return (
+    <div className="grid grid-cols-8 gap-px border-t border-surface-line bg-surface-line">
+      {Array.from({ length: total }).map((_, i) => {
+        const filled = i < completed;
+        return (
+          <div
+            key={i}
+            className={`h-[3px] transition-colors duration-300 ${
+              filled ? "bg-accent" : "bg-surface-raised"
+            }`}
+          />
+        );
+      })}
+    </div>
   );
 }

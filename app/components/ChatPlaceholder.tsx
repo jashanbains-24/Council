@@ -1,9 +1,17 @@
 import type { AgentName } from "@/lib/types";
-import { AgentGlyph } from "./AgentGlyph";
 
 type ChatPlaceholderProps = {
   name: AgentName;
   phase: "opening" | "rebuttal";
+  index: number;
+  total: number;
+};
+
+const ACCENT: Record<AgentName, string> = {
+  Strategist: "#c9a449",
+  Skeptic: "#c97a6f",
+  Operator: "#7eb6c8",
+  Psychologist: "#9ab39a",
 };
 
 const SIDE_BY_AGENT: Record<AgentName, "left" | "right"> = {
@@ -13,109 +21,135 @@ const SIDE_BY_AGENT: Record<AgentName, "left" | "right"> = {
   Psychologist: "right",
 };
 
-const ACCENT: Record<
-  AgentName,
-  { bubble: string; avatar: string; name: string; dot: string }
-> = {
-  Strategist: {
-    bubble: "border-amber-200/80",
-    avatar: "border-amber-300 bg-amber-50 text-amber-600",
-    name: "text-amber-700",
-    dot: "bg-amber-400",
-  },
-  Skeptic: {
-    bubble: "border-red-200/80",
-    avatar: "border-red-300 bg-red-50 text-red-600",
-    name: "text-red-700",
-    dot: "bg-red-400",
-  },
-  Operator: {
-    bubble: "border-blue-200/80",
-    avatar: "border-blue-300 bg-blue-50 text-blue-600",
-    name: "text-blue-700",
-    dot: "bg-blue-400",
-  },
-  Psychologist: {
-    bubble: "border-emerald-200/80",
-    avatar: "border-emerald-300 bg-emerald-50 text-emerald-600",
-    name: "text-emerald-700",
-    dot: "bg-emerald-400",
-  },
-};
-
 const ROLE_BY_AGENT: Record<AgentName, string> = {
-  Strategist: "Big picture & opportunity",
-  Skeptic: "Risks & failure modes",
-  Operator: "Execution reality",
-  Psychologist: "People & second-order effects",
+  Strategist: "big picture & opportunity",
+  Skeptic: "risks & failure modes",
+  Operator: "execution reality",
+  Psychologist: "people & second-order effects",
 };
 
-function ThinkingDots({ tone }: { tone: string }) {
-  return (
-    <span className="ml-1 inline-flex items-end gap-[3px] align-middle">
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${tone}`}
-        style={{
-          animation: "pulse 1.2s ease-in-out 0ms infinite",
-        }}
-      />
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${tone}`}
-        style={{
-          animation: "pulse 1.2s ease-in-out 200ms infinite",
-        }}
-      />
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${tone}`}
-        style={{
-          animation: "pulse 1.2s ease-in-out 400ms infinite",
-        }}
-      />
-    </span>
-  );
-}
+const PHASE_DOT: Record<"opening" | "rebuttal", string> = {
+  opening: "#c9a449",
+  rebuttal: "#7eb6c8",
+};
 
-export function ChatPlaceholder({ name, phase }: ChatPlaceholderProps) {
-  const side = SIDE_BY_AGENT[name];
+export function ChatPlaceholder({
+  name,
+  phase,
+  index,
+  total,
+}: ChatPlaceholderProps) {
   const accent = ACCENT[name];
-  const isLeft = side === "left";
-  const verb =
-    phase === "opening"
-      ? `${name} is thinking`
-      : `${name} is composing a reply`;
+  const side = SIDE_BY_AGENT[name];
+  const isRight = side === "right";
+  const idx = String(index).padStart(2, "0");
+  const tot = String(total).padStart(2, "0");
+  const phaseDot = PHASE_DOT[phase];
 
   return (
     <article
-      className={`flex w-full max-w-[min(100%,44rem)] gap-3 opacity-0 animate-[fadeIn_280ms_ease-out_forwards] ${
-        isLeft ? "mr-auto flex-row" : "ml-auto flex-row-reverse"
+      className={`relative w-full opacity-0 animate-[fadeIn_280ms_ease-out_forwards] sm:max-w-[min(78%,720px)] ${
+        isRight ? "sm:ml-auto" : "sm:mr-auto"
       }`}
     >
       <div
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border ${accent.avatar} animate-[pulse_2s_ease-in-out_infinite]`}
-      >
-        <AgentGlyph name={name} className="h-6 w-6" />
-      </div>
-      <div
-        className={`min-w-0 flex-1 rounded-2xl border border-dashed bg-white/80 px-4 py-3 shadow-sm ${accent.bubble} ${
-          isLeft ? "rounded-tl-md" : "rounded-tr-md"
+        className={`rule-draw mb-4 h-px bg-surface-line-strong ${
+          isRight ? "origin-right" : "origin-left"
         }`}
+      />
+
+      <div
+        className="px-4 py-3"
+        style={{
+          backgroundImage: `linear-gradient(${isRight ? "270deg" : "90deg"}, ${accent}1c, ${accent}08 28%, transparent 65%)`,
+        }}
       >
-        <div
-          className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${
-            isLeft ? "justify-start" : "justify-end"
+        <header
+          className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 ${
+            isRight ? "flex-row-reverse" : ""
           }`}
         >
-          <h3
-            className={`font-mono text-[11px] font-semibold uppercase tracking-[0.18em] ${accent.name}`}
+          <div
+            className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-ultra-wide tabular-nums"
+            style={{ color: accent }}
           >
-            {name}
-          </h3>
-          <p className="text-[11px] text-slate-500">{ROLE_BY_AGENT[name]}</p>
+            <span className="text-ink-faint">
+              [{idx}/{tot}]
+            </span>
+            <span className="font-semibold">{name}</span>
+            <span
+              className="ml-1 inline-block h-1.5 w-1.5 rounded-full pulse-ring"
+              style={{ background: accent }}
+            />
+          </div>
+          <p
+            className={`hidden flex-1 font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint sm:block ${
+              isRight ? "text-right" : "text-left"
+            }`}
+          >
+            {ROLE_BY_AGENT[name]}
+          </p>
+          <span
+            className={`flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint ${
+              isRight ? "flex-row-reverse" : ""
+            }`}
+          >
+            <span
+              className="inline-block h-1 w-1 rounded-full"
+              style={{ background: phaseDot, opacity: 0.7 }}
+            />
+            {phase === "opening" ? "round 1" : "round 2"}
+          </span>
+        </header>
+
+        <div
+          className={`mt-4 grid gap-4 ${
+            isRight ? "grid-cols-[1fr_2px]" : "grid-cols-[2px_1fr]"
+          }`}
+        >
+          {!isRight ? (
+            <div className="w-[2px]" style={{ background: `${accent}55` }} />
+          ) : null}
+          <div
+            className={`flex items-center gap-3 font-mono text-[13px] italic text-ink-faint ${
+              isRight ? "flex-row-reverse" : ""
+            }`}
+          >
+            <span>composing</span>
+            <span className="flex gap-[3px]">
+              <span
+                className="inline-block h-1 w-1 rounded-full"
+                style={{
+                  background: accent,
+                  animation: "dotStep 1.2s ease-in-out 0ms infinite",
+                }}
+              />
+              <span
+                className="inline-block h-1 w-1 rounded-full"
+                style={{
+                  background: accent,
+                  animation: "dotStep 1.2s ease-in-out 200ms infinite",
+                }}
+              />
+              <span
+                className="inline-block h-1 w-1 rounded-full"
+                style={{
+                  background: accent,
+                  animation: "dotStep 1.2s ease-in-out 400ms infinite",
+                }}
+              />
+            </span>
+            <span
+              className={`inline-block h-3.5 w-[6px] cursor-blink ${
+                isRight ? "mr-auto" : "ml-auto"
+              }`}
+              style={{ background: accent }}
+            />
+          </div>
+          {isRight ? (
+            <div className="w-[2px]" style={{ background: `${accent}55` }} />
+          ) : null}
         </div>
-        <p className="mt-2 flex items-center text-[14px] italic leading-relaxed text-slate-500">
-          {verb}
-          <ThinkingDots tone={accent.dot} />
-        </p>
       </div>
     </article>
   );

@@ -4,92 +4,100 @@ type BriefingProps = {
   briefing: BriefingType;
 };
 
-const confidenceClass = {
-  high: "border-emerald-300 bg-emerald-50 text-emerald-800",
-  medium: "border-amber-300 bg-amber-50 text-amber-800",
-  low: "border-red-300 bg-red-50 text-red-800",
+const confidenceConfig = {
+  high: { dot: "bg-emerald-400", text: "text-emerald-400" },
+  medium: { dot: "bg-accent", text: "text-accent" },
+  low: { dot: "bg-red-400", text: "text-red-400" },
 };
 
 /**
- * Final verdict that lives at the bottom of the Council chat panel. Keeps
- * its own visual weight (it IS the conclusion) but uses the same chat-canvas
- * surface — no nested shadow / outer card.
+ * Final verdict at the bottom of the council transcript. Most distinctive
+ * block in the session — uses a slightly raised surface and a heavier rule
+ * to set it apart as the compiled output.
  */
 export function Briefing({ briefing }: BriefingProps) {
-  const hasOverride =
-    Boolean(briefing.what_would_change_this?.trim()) &&
-    briefing.what_would_change_this.trim().length > 0;
+  const conf = confidenceConfig[briefing.confidence];
+  const hasOverride = Boolean(briefing.what_would_change_this?.trim());
 
   return (
-    <div className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">
-            Verdict
+    <div className="relative scan-in">
+      <div className="mb-4 h-px bg-accent/40" />
+      <div className="border border-surface-line bg-surface-raised">
+        <header className="grid grid-cols-[auto_1fr_auto] items-baseline gap-4 border-b border-surface-line px-6 py-4">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-ultra-wide text-accent">
+            {"// verdict"}
+          </span>
+          <span className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+            structured judgment compiled
+          </span>
+          <span
+            className={`flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-ultra-wide ${conf.text}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${conf.dot}`} />
+            {briefing.confidence} confidence
+          </span>
+        </header>
+
+        <div className="px-6 py-7">
+          <p className="text-[10px] font-mono uppercase tracking-ultra-wide text-ink-faint">
+            recommendation
           </p>
-          <h3 className="mt-2 font-display text-xl leading-snug text-slate-900 sm:text-2xl">
+          <h3 className="mt-3 max-w-[60ch] text-2xl font-medium leading-snug tracking-tight text-ink sm:text-[28px]">
             {briefing.recommendation}
           </h3>
+
+          <div className="mt-7">
+            <p className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+              reasoning
+            </p>
+            <p className="mt-2 max-w-[68ch] text-[15px] leading-relaxed text-ink-muted">
+              {briefing.reasoning}
+            </p>
+          </div>
+
+          <div className="mt-7 grid gap-4 border-t border-surface-line pt-6 sm:grid-cols-2">
+            <div className="border-l-2 border-surface-line-strong pl-4">
+              <p className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+                where they disagreed
+              </p>
+              <p className="mt-2 text-[13px] leading-relaxed text-ink/85">
+                {briefing.dissent}
+              </p>
+            </div>
+            <div className="border-l-2 border-accent/60 pl-4">
+              <p className="font-mono text-[10px] uppercase tracking-ultra-wide text-accent">
+                main risk
+              </p>
+              <p className="mt-2 text-[13px] leading-relaxed text-ink/85">
+                {briefing.biggest_risk}
+              </p>
+            </div>
+          </div>
+
+          {hasOverride ? (
+            <div className="mt-5 border-t border-surface-line pt-5">
+              <p className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
+                would change the call
+              </p>
+              <p className="mt-2 max-w-[68ch] text-[13px] leading-relaxed text-ink-muted">
+                {briefing.what_would_change_this}
+              </p>
+            </div>
+          ) : null}
         </div>
-        <span
-          className={`w-fit shrink-0 rounded-md border px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] ${confidenceClass[briefing.confidence]}`}
-        >
-          {briefing.confidence} confidence
-        </span>
+
+        <details className="group border-t border-surface-line bg-surface px-6 py-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between font-mono text-[10px] font-semibold uppercase tracking-ultra-wide text-ink-faint transition hover:text-ink-muted">
+            <span>{"// agent payload (json)"}</span>
+            <span className="text-ink-dim transition group-open:rotate-180">
+              ▾
+            </span>
+          </summary>
+          <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words border border-surface-line bg-surface-raised p-3 font-mono text-[11px] leading-5 text-ink-muted">
+            {JSON.stringify(briefing, null, 2)}
+          </pre>
+        </details>
       </div>
-
-      <div className="space-y-4 px-5 py-5">
-        <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-            Why
-          </p>
-          <p className="mt-1.5 text-sm leading-relaxed text-slate-700">
-            {briefing.reasoning}
-          </p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-3">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Where they disagreed
-            </p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">
-              {briefing.dissent}
-            </p>
-          </div>
-          <div className="rounded-xl border border-amber-200/80 bg-amber-50/60 px-3.5 py-3">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-800">
-              Main risk
-            </p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-amber-900/90">
-              {briefing.biggest_risk}
-            </p>
-          </div>
-        </div>
-
-        {hasOverride ? (
-          <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Would change the call
-            </p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">
-              {briefing.what_would_change_this}
-            </p>
-          </div>
-        ) : null}
-      </div>
-
-      <details className="group border-t border-slate-100 bg-slate-50/60 px-5 py-3">
-        <summary className="flex cursor-pointer items-center justify-between font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-          <span>Agent payload (JSON)</span>
-          <span className="text-slate-400 transition group-open:rotate-180">
-            ▾
-          </span>
-        </summary>
-        <pre className="mt-3 max-h-52 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-white p-3 font-mono text-[11px] leading-5 text-slate-600">
-          {JSON.stringify(briefing, null, 2)}
-        </pre>
-      </details>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type DecisionInputProps = {
   initialValue: string;
@@ -14,52 +14,71 @@ export function DecisionInput({
   onSubmit,
 }: DecisionInputProps) {
   const [decision, setDecision] = useState(initialValue);
+  const [focused, setFocused] = useState(false);
   const trimmedDecision = decision.trim();
+  const characterCount = decision.length;
+
+  useEffect(() => {
+    setDecision(initialValue);
+  }, [initialValue]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!trimmedDecision || isLoading) {
-      return;
-    }
-
+    if (!trimmedDecision || isLoading) return;
     onSubmit(trimmedDecision);
   }
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-council-md"
+      className="opacity-0 animate-[fadeIn_700ms_ease-out_forwards]"
+      style={{ animationDelay: "200ms" }}
     >
-      <div className="border-b border-slate-100 bg-slate-50/80 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-surface-line pb-3">
         <label
           htmlFor="decision"
-          className="font-mono text-xs font-medium uppercase tracking-[0.24em] text-slate-500"
+          className="font-mono text-[10px] font-medium uppercase tracking-ultra-wide text-accent"
         >
-          What is your agent about to assume?
+          {"// input · the assumption your agent is about to make"}
         </label>
+        <span className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint tabular-nums">
+          {characterCount.toString().padStart(3, "0")} ch
+        </span>
       </div>
-      <div className="p-6">
+
+      <div
+        className={`relative mt-4 border-l-2 transition-colors ${
+          focused ? "border-accent" : "border-surface-line"
+        }`}
+      >
+        <div className="pointer-events-none absolute left-3 top-3 select-none font-mono text-sm text-accent">
+          &gt;
+        </div>
         <textarea
           id="decision"
           value={decision}
           onChange={(event) => setDecision(event.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           disabled={isLoading}
-          rows={7}
-          className="min-h-40 w-full resize-none rounded-xl border border-slate-200 bg-slate-50/50 p-4 text-base leading-relaxed text-slate-800 outline-none ring-slate-900/5 transition placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:ring-4 disabled:cursor-not-allowed disabled:opacity-60"
+          rows={5}
+          spellCheck={false}
+          className="block min-h-32 w-full resize-none bg-transparent py-3 pl-9 pr-4 text-lg leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-60"
+          placeholder="describe the assumption..."
         />
-        <div className="mt-6 flex flex-col gap-4 border-t border-slate-100 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-mono text-xs text-slate-500">
-            Also available as an API for direct agent integration.
-          </p>
-          <button
-            type="submit"
-            disabled={!trimmedDecision || isLoading}
-            className="rounded-xl bg-slate-900 px-6 py-3 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
-          >
-            {isLoading ? "Convening..." : "Convene Council"}
-          </button>
-        </div>
+      </div>
+
+      <div className="mt-6 flex justify-end">
+        <button
+          type="submit"
+          disabled={!trimmedDecision || isLoading}
+          className="group inline-flex items-center gap-3 border border-accent bg-accent/10 px-5 py-3 font-mono text-[11px] font-semibold uppercase tracking-ultra-wide text-accent transition hover:bg-accent hover:text-surface disabled:cursor-not-allowed disabled:border-surface-line disabled:bg-transparent disabled:text-ink-faint"
+        >
+          {isLoading ? "convening" : "convene council"}
+          <span className="font-mono text-[14px] leading-none transition-transform group-hover:translate-x-0.5">
+            →
+          </span>
+        </button>
       </div>
     </form>
   );

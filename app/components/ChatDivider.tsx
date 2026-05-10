@@ -4,47 +4,45 @@ type ChatDividerProps = {
   variant?: "default" | "warm" | "cool";
 };
 
-const variantStyles = {
-  default: {
-    line: "via-slate-300/70",
-    text: "text-slate-500",
-  },
-  warm: {
-    line: "via-amber-300/60",
-    text: "text-amber-700",
-  },
-  cool: {
-    line: "via-cyan-300/60",
-    text: "text-cyan-700",
-  },
+const variantConfig = {
+  default: { text: "text-ink-muted", dot: "#9a978f" },
+  warm: { text: "text-accent", dot: "#c9a449" },
+  cool: { text: "text-agent-operator", dot: "#7eb6c8" },
 };
 
 /**
- * Thin in-thread divider. Used to mark phase boundaries (council convened,
- * Round II begins, synthesis, verdict) without breaking the single-chat feel.
+ * Bracketed phase rule. Used inside the transcript to mark phase boundaries
+ * (council convened, Round II, verdict) without breaking the single-thread feel.
  */
 export function ChatDivider({
   label,
   hint,
   variant = "default",
 }: ChatDividerProps) {
-  const style = variantStyles[variant];
+  const cfg = variantConfig[variant];
   return (
-    <div className="flex w-full items-center gap-3 py-2">
-      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${style.line} to-transparent`} />
-      <div className="flex flex-col items-center text-center">
+    <div className="relative py-4 opacity-0 animate-[fadeIn_500ms_ease-out_forwards]">
+      <div
+        className="rule-draw mb-3 h-px origin-left"
+        style={{ background: `${cfg.dot}30` }}
+      />
+      <div className="flex flex-wrap items-baseline gap-3">
         <span
-          className={`font-mono text-[10px] font-semibold uppercase tracking-[0.24em] ${style.text}`}
+          className={`flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-ultra-wide ${cfg.text}`}
         >
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: cfg.dot }}
+          />
+          {"// "}
           {label}
         </span>
         {hint ? (
-          <span className="mt-1 max-w-xs text-[11px] text-slate-400">
+          <span className="font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint">
             {hint}
           </span>
         ) : null}
       </div>
-      <div className={`h-px flex-1 bg-gradient-to-r from-transparent ${style.line} to-transparent`} />
     </div>
   );
 }

@@ -1,15 +1,10 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans, Playfair_Display } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
-
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  variable: "--font-playfair",
-});
 
 const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["300", "400", "500", "600", "700"],
   variable: "--font-plex-sans",
 });
 
@@ -20,7 +15,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Council",
+  title: "Council // judgment layer",
   description: "Don't assume. Consult.",
 };
 
@@ -32,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${playfair.variable} ${plexSans.variable} ${plexMono.variable} font-sans antialiased`}
+        className={`${plexSans.variable} ${plexMono.variable} font-sans antialiased`}
       >
         {children}
       </body>

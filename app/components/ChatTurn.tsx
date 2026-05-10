@@ -3,12 +3,20 @@
 import { useEffect, useState } from "react";
 import { getSimulatedTypingMs } from "@/lib/deliberation-pacing";
 import type { AgentName, AgentResponse } from "@/lib/types";
-import { AgentGlyph } from "./AgentGlyph";
 
 type ChatTurnProps = {
   agent: AgentResponse;
   phase: "opening" | "rebuttal";
+  index: number;
+  total: number;
   simulateTyping?: boolean;
+};
+
+const ACCENT: Record<AgentName, string> = {
+  Strategist: "#c9a449",
+  Skeptic: "#c97a6f",
+  Operator: "#7eb6c8",
+  Psychologist: "#9ab39a",
 };
 
 const SIDE_BY_AGENT: Record<AgentName, "left" | "right"> = {
@@ -18,43 +26,16 @@ const SIDE_BY_AGENT: Record<AgentName, "left" | "right"> = {
   Psychologist: "right",
 };
 
-const ACCENT: Record<
-  AgentName,
-  { bubble: string; avatar: string; name: string; tag: string; caret: string }
-> = {
-  Strategist: {
-    bubble: "border-amber-200/80",
-    avatar: "border-amber-300 bg-amber-50 text-amber-600",
-    name: "text-amber-700",
-    tag: "bg-amber-50 text-amber-700",
-    caret: "bg-amber-500",
-  },
-  Skeptic: {
-    bubble: "border-red-200/80",
-    avatar: "border-red-300 bg-red-50 text-red-600",
-    name: "text-red-700",
-    tag: "bg-red-50 text-red-700",
-    caret: "bg-red-500",
-  },
-  Operator: {
-    bubble: "border-blue-200/80",
-    avatar: "border-blue-300 bg-blue-50 text-blue-600",
-    name: "text-blue-700",
-    tag: "bg-blue-50 text-blue-700",
-    caret: "bg-blue-500",
-  },
-  Psychologist: {
-    bubble: "border-emerald-200/80",
-    avatar: "border-emerald-300 bg-emerald-50 text-emerald-600",
-    name: "text-emerald-700",
-    tag: "bg-emerald-50 text-emerald-700",
-    caret: "bg-emerald-500",
-  },
+const PHASE_DOT: Record<"opening" | "rebuttal", string> = {
+  opening: "#c9a449",
+  rebuttal: "#7eb6c8",
 };
 
 export function ChatTurn({
   agent,
   phase,
+  index,
+  total,
   simulateTyping = true,
 }: ChatTurnProps) {
   const full = agent.response;
@@ -91,53 +72,86 @@ export function ChatTurn({
     return () => cancelAnimationFrame(frame);
   }, [full, simulateTyping]);
 
-  const side = SIDE_BY_AGENT[agent.name];
   const accent = ACCENT[agent.name];
-  const isLeft = side === "left";
+  const side = SIDE_BY_AGENT[agent.name];
+  const isRight = side === "right";
+  const idx = String(index).padStart(2, "0");
+  const tot = String(total).padStart(2, "0");
+  const phaseDot = PHASE_DOT[phase];
 
   return (
     <article
-      className={`flex w-full max-w-[min(100%,44rem)] gap-3 opacity-0 animate-[fadeIn_400ms_ease-out_forwards] ${
-        isLeft ? "mr-auto flex-row" : "ml-auto flex-row-reverse"
+      className={`group relative w-full opacity-0 animate-[fadeIn_400ms_ease-out_forwards] sm:max-w-[min(78%,720px)] ${
+        isRight ? "sm:ml-auto" : "sm:mr-auto"
       }`}
     >
       <div
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border ${accent.avatar}`}
-      >
-        <AgentGlyph name={agent.name} className="h-6 w-6" />
-      </div>
-      <div
-        className={`min-w-0 flex-1 rounded-2xl border bg-white px-4 py-3 shadow-sm ${accent.bubble} ${
-          isLeft ? "rounded-tl-md" : "rounded-tr-md"
+        className={`rule-draw mb-4 h-px bg-surface-line-strong ${
+          isRight ? "origin-right" : "origin-left"
         }`}
+      />
+
+      <div
+        className="px-4 py-3 transition-colors duration-300"
+        style={{
+          backgroundImage: `linear-gradient(${isRight ? "270deg" : "90deg"}, ${accent}14, ${accent}05 28%, transparent 65%)`,
+        }}
       >
-        <div
-          className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${
-            isLeft ? "justify-start" : "justify-end"
+        <header
+          className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 ${
+            isRight ? "flex-row-reverse" : ""
           }`}
         >
-          <h3
-            className={`font-mono text-[11px] font-semibold uppercase tracking-[0.18em] ${accent.name}`}
+          <div
+            className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-ultra-wide tabular-nums"
+            style={{ color: accent }}
           >
-            {agent.name}
-          </h3>
-          <p className="text-[11px] text-slate-500">{agent.role}</p>
-          {phase === "rebuttal" ? (
-            <span
-              className={`rounded-md px-1.5 py-0.5 font-mono text-[9px] font-medium uppercase tracking-[0.16em] ${accent.tag}`}
-            >
-              reply
+            <span className="text-ink-faint">
+              [{idx}/{tot}]
             </span>
+            <span className="font-semibold">{agent.name}</span>
+          </div>
+          <p
+            className={`hidden flex-1 font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint sm:block ${
+              isRight ? "text-right" : "text-left"
+            }`}
+          >
+            {agent.role.toLowerCase()}
+          </p>
+          <span
+            className={`flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-ultra-wide text-ink-faint ${
+              isRight ? "flex-row-reverse" : ""
+            }`}
+          >
+            <span
+              className="inline-block h-1 w-1 rounded-full"
+              style={{ background: phaseDot, opacity: 0.7 }}
+            />
+            {phase === "opening" ? "round 1" : "round 2"}
+          </span>
+        </header>
+
+        <div
+          className={`mt-4 grid gap-4 ${
+            isRight ? "grid-cols-[1fr_2px]" : "grid-cols-[2px_1fr]"
+          }`}
+        >
+          {!isRight ? (
+            <div className="w-[2px]" style={{ background: `${accent}55` }} />
+          ) : null}
+          <p className="text-[16px] leading-relaxed text-ink-soft">
+            {visibleText}
+            {showCaret ? (
+              <span
+                className="ml-0.5 inline-block h-4 w-[7px] translate-y-[2px] cursor-blink align-middle"
+                style={{ background: accent }}
+              />
+            ) : null}
+          </p>
+          {isRight ? (
+            <div className="w-[2px]" style={{ background: `${accent}55` }} />
           ) : null}
         </div>
-        <p className="mt-2 text-[15px] leading-relaxed text-slate-700">
-          {visibleText}
-          {showCaret ? (
-            <span
-              className={`ml-0.5 inline-block h-4 w-[2px] animate-pulse align-middle ${accent.caret}`}
-            />
-          ) : null}
-        </p>
       </div>
     </article>
   );
